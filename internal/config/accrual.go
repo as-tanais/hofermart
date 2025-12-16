@@ -1,36 +1,25 @@
 package config
 
-import (
-	"flag"
-	"fmt"
-)
+import "fmt"
 
 type AccrualConfig struct {
-	Address string
-	DBConfig
+	RunAddress string
+	DB         *DBConfig
 }
 
-func NewAccrualConfig() (*AccrualConfig, error) {
-	cfg := &AccrualConfig{}
-
-	addrFlag := flag.String("a", "localhost:8081", "Accrual server address host:port")
-
-	flag.Parse()
-
-	cfg.Address = GetEnvOrDefault("RUN_ADDRESS", *addrFlag)
-
-	if cfg.Address == "" {
-		return nil, fmt.Errorf("server address cannot be empty")
-	}
-
-	dbURI, err := getDBURI()
-
+func LoadAccrualConfig(runAddrFlag, dbFlag string) (*AccrualConfig, error) {
+	runAddr, err := GetEnvOrValue(runAddrFlag, "RUN_ADDRESS")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load RUN_ADDRESS: %w", err)
 	}
 
-	cfg.DATABASE_URI = dbURI
+	dbCfg, err := LoadDBConfig(dbFlag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load DB config: %w", err)
+	}
 
-	return cfg, nil
-
+	return &AccrualConfig{
+		RunAddress: runAddr,
+		DB:         dbCfg,
+	}, nil
 }

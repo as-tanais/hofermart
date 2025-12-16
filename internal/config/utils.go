@@ -1,27 +1,16 @@
 package config
 
 import (
+	"fmt"
 	"os"
-	"strconv"
 )
 
-func GetEnvOrDefault(key, defaultValue string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+func GetEnvOrValue(flagValue, envVarName string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
 	}
-	return defaultValue
-}
-
-func GetEnvIntOrDefault(key string, defaultValue int) (int, error) {
-	if val := os.Getenv(key); val != "" {
-		return strconv.Atoi(val)
+	if envValue := os.Getenv(envVarName); envValue != "" {
+		return envValue, nil
 	}
-	return defaultValue, nil
-}
-
-func GetEnvBoolOrDefault(key string, defaultValue bool) bool {
-	if val := os.Getenv(key); val != "" {
-		return val == "true" || val == "1"
-	}
-	return defaultValue
+	return "", fmt.Errorf("missing required config: %s (use flag or %s env var)", envVarName, envVarName)
 }

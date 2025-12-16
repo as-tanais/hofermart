@@ -1,23 +1,17 @@
 package config
 
 import (
-	"flag"
 	"fmt"
 )
 
 type DBConfig struct {
-	DATABASE_URI string
+	DatabaseURI string
 }
 
-func getDBURI() (string, error) {
-
-	dbFlag := flag.String("d", "", "Database dsn")
-	flag.Parse()
-	dbUri := GetEnvOrDefault("DATABASE_URI", *dbFlag)
-
-	if dbUri == "" {
-		return "", fmt.Errorf("отсутсвует адрес подключения к БД")
+func LoadDBConfig(dbFlag string) (*DBConfig, error) {
+	uri, err := GetEnvOrValue(dbFlag, "DATABASE_URI")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load DB config: %w", err)
 	}
-
-	return dbUri, nil
+	return &DBConfig{DatabaseURI: uri}, nil
 }

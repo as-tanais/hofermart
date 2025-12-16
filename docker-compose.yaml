@@ -1,0 +1,11 @@
+services:
+  pgdb:
+    image: "postgres:16"
+    container_name: "pgdb_hofermart"
+    environment:
+      - POSTGRES_USER=db_user
+      - POSTGRES_PASSWORD=pwd123
+    ports:
+      - "54323:5432"
+    volumes:
+      - ./data:/var/lib/postgresql/data

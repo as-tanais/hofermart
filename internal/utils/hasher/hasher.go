@@ -18,7 +18,6 @@ func NewHasher(cost int) *Hasher {
 
 func (h *Hasher) HashPassword(password string) (string, error) {
 
-	fmt.Println("пытаемся захэшировать пароль")
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), h.cost)
 	if err != nil {
 		return "", fmt.Errorf("не получилось захэшировать пароль: %w", err)

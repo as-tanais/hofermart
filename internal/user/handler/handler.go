@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/as-tanais/hofermart/internal/auth"
-	"github.com/as-tanais/hofermart/internal/user"
+	usrerr "github.com/as-tanais/hofermart/internal/user"
 	"github.com/as-tanais/hofermart/internal/user/dto"
 	"github.com/as-tanais/hofermart/internal/user/service"
 	"go.uber.org/zap"
@@ -36,11 +36,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	createdUser, err := h.service.Register(r.Context(), req)
 	if err != nil {
 		switch {
-		case errors.Is(err, user.ErrInvalidLogin), errors.Is(err, user.ErrInvalidPassword):
+		case errors.Is(err, usrerr.ErrInvalidLogin), errors.Is(err, usrerr.ErrInvalidPassword):
 			http.Error(w, "некорректный логин или пароль", http.StatusBadRequest)
-		case errors.Is(err, user.ErrLoginExists):
+		case errors.Is(err, usrerr.ErrLoginExists):
 			http.Error(w, "логин уже занят", http.StatusConflict)
-		case errors.Is(err, user.ErrInvalidCredentials):
+		case errors.Is(err, usrerr.ErrInvalidCredentials):
 			http.Error(w, "неверный логин или пароль", http.StatusUnauthorized)
 		default:
 			http.Error(w, "внутренняя ошибка сервера", http.StatusInternalServerError)
@@ -75,11 +75,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Login == "" || req.Password == "" {
-		http.Error(w, "логин и пароль обязательны", http.StatusBadRequest)
-		return
-	}
-
 	u, err := h.service.Login(r.Context(), req.Login, req.Password)
 	if err != nil {
 		h.logger.Warn("Ошибка входа",
@@ -87,7 +82,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			zap.Error(err),
 		)
 
-		if errors.Is(err, user.ErrInvalidCredentials) {
+		if errors.Is(err, usrerr.ErrInvalidCredentials) {
 			http.Error(w, "неверный логин или пароль", http.StatusUnauthorized)
 			return
 		}

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	usrerr "github.com/as-tanais/hofermart/internal/user"
 	"github.com/as-tanais/hofermart/internal/user/model"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,8 +24,6 @@ func NewUserStorage(db *pgxpool.Pool) UserStorage {
 
 func (s *userStorage) Create(ctx context.Context, user *model.User) (*model.User, error) {
 
-	fmt.Println("TUT BUDEM?")
-
 	const insertQuery = `
         INSERT INTO users (login, password_hash)
         VALUES ($1, $2)
@@ -35,7 +34,7 @@ func (s *userStorage) Create(ctx context.Context, user *model.User) (*model.User
 	err := s.db.QueryRow(ctx, insertQuery, user.Login, user.Password).Scan(&user.ID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("login %q already exists", user.Login)
+			return nil, usrerr.ErrLoginExists
 		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}

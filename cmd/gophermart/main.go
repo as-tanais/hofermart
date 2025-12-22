@@ -52,7 +52,7 @@ func main() {
 	jwtManager := auth.NewJWTManager("My-strong-sercret-for-JWT-bla-blab-123", 3600)
 
 	userRepo := storage.NewUserStorage(pool)
-	userService := service.NewUserService(userRepo, hasher)
+	userService := service.NewUserService(userRepo, hasher, log)
 	userHandler := handler.NewHandler(userService, jwtManager, log)
 
 	router := chi.NewRouter()

@@ -28,7 +28,7 @@ func main() {
 	log := logger.NewLogger()
 	defer log.Sync()
 
-	runAddr := flag.String("a", "localhost", "Server address :8080")
+	runAddr := flag.String("a", ":8080", "Server address :8080")
 	dbURI := flag.String("d", "postgres", "Database DSN")
 	flag.Parse()
 
@@ -66,8 +66,6 @@ func main() {
 
 	// Хендлер
 	orderHandler := orderHand.NewHandler(orderService, log)
-
-	// Роутер
 
 	// Роутер
 	router := chi.NewRouter()

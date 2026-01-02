@@ -36,16 +36,20 @@ func main() {
 		log.Fatal("Не удалось загрузить конфигурацию сервера", zap.Error(err))
 	}
 
+	log.Info("Applying migrations...")
 	// if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
 	// 	log.Fatal("Migration failed", zap.Error(err))
 	// }
 
 	ctx := context.Background()
 
+	log.Info("Connecting to DB...")
 	pool, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
 	if err != nil {
 		log.Fatal("DB connection failed", zap.Error(err))
 	}
+
+	log.Info("Starting HTTP server...")
 
 	hasher := hasher.NewHasher(5)
 	jwtManager := auth.NewJWTManager("My-strong-sercret-for-JWT-bla-blab-123", 3600)

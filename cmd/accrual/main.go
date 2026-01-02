@@ -36,10 +36,13 @@ func main() {
 		log.Warn("Ошибка", zap.Error(err))
 	}
 
+	log.Info("Applying migrations...")
+
 	// if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
 	// 	log.Fatal("Migration failed", zap.Error(err))
 	// }
 
+	log.Info("Connecting to DB...")
 	ctx := context.Background()
 
 	db, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/as-tanais/hofermart/internal/auth"
 	"github.com/as-tanais/hofermart/internal/config"
-	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
 	"github.com/as-tanais/hofermart/internal/postgres"
 	"github.com/as-tanais/hofermart/internal/user/handler"
@@ -37,9 +36,9 @@ func main() {
 		log.Fatal("Не удалось загрузить конфигурацию сервера", zap.Error(err))
 	}
 
-	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
-		log.Fatal("Migration failed", zap.Error(err))
-	}
+	// if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
+	// 	log.Fatal("Migration failed", zap.Error(err))
+	// }
 
 	ctx := context.Background()
 

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/as-tanais/hofermart/internal/config"
-	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
 	orderHand "github.com/as-tanais/hofermart/internal/orders/handler"
 	orderSrv "github.com/as-tanais/hofermart/internal/orders/service"
@@ -37,9 +36,9 @@ func main() {
 		log.Warn("Ошибка", zap.Error(err))
 	}
 
-	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
-		log.Fatal("Migration failed", zap.Error(err))
-	}
+	// if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
+	// 	log.Fatal("Migration failed", zap.Error(err))
+	// }
 
 	ctx := context.Background()
 

@@ -1,5 +1,5 @@
-run-accrual:
-	go run ./cmd/accrual
+run-a:
+	go run ./cmd/accrual -a=localhost:45423 -d postgres://db_user:pwd123@localhost:54323/hofermart?sslmode=disable
 
-run-goph:
+run-g:
 	go run ./cmd/gophermart -a=localhost:45422 -d postgres://db_user:pwd123@localhost:54323/hofermart?sslmode=disable -r=localhost:45423

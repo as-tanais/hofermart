@@ -26,7 +26,7 @@ func main() {
 
 	log := logger.NewLogger()
 
-	addr := flag.String("a", ":8080", "Server address (e.g. :8080)")
+	addr := flag.String("a", "", "Server address (e.g. :8080)")
 	dsn := flag.String("d", "", "DSN")
 	accrualAddr := flag.String("r", "", "Accrual system address (e.g. http://accrual:8080)")
 

@@ -2,31 +2,30 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/as-tanais/hofermart/internal/config"
+	"github.com/as-tanais/hofermart/internal/dbmigrate"
+	"github.com/as-tanais/hofermart/internal/logger"
+	"github.com/as-tanais/hofermart/internal/postgres"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// Создаем простой логгер
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	log := logger.Sugar()
+	log := logger.NewLogger()
+	defer log.Sync()
 
-	// Читаем флаги
-	runAddr := flag.String("a", ":8080", "Server address (e.g. :8080)")
+	runAddr := flag.String("a", ":8080", "Server address :8080")
 	dbURI := flag.String("d", "postgres://postgres:postgres@localhost:5432/accrual?sslmode=disable", "Database DSN")
 	flag.Parse()
 
-	// Переменные окружения имеют приоритет
+	// ПРИОРИТЕТ: переменные окружения > флаги
 	if envAddr := os.Getenv("RUN_ADDRESS"); envAddr != "" {
 		*runAddr = envAddr
 	}
@@ -34,226 +33,136 @@ func main() {
 		*dbURI = envDBURI
 	}
 
-	log.Infof("Starting test accrual server on %s", *runAddr)
-	log.Infof("Database DSN: %s (ignored)", *dbURI)
+	log.Info("Config loaded",
+		zap.String("address", *runAddr),
+		zap.String("database", *dbURI))
 
-	// Хранилище для тестовых данных
-	rewards := []map[string]interface{}{
-		{"match": "Ii0nlklSkq", "reward": 5, "reward_type": "%"},
-		{"match": "test", "reward": 10, "reward_type": "pt"},
+	cfg, err := config.LoadAccrualConfig(*runAddr, *dbURI)
+	if err != nil {
+		log.Fatal("Failed to load config", zap.Error(err))
 	}
 
-	orders := make(map[string]map[string]interface{})
+	// 1. Выполняем миграции
+	log.Info("Applying migrations...")
+	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
+		log.Fatal("Migration failed", zap.Error(err))
+	}
+	log.Info("Migrations applied successfully")
 
-	// Создаем роутер
+	// 2. Подключаемся к БД
+	log.Info("Connecting to DB...")
+	ctx := context.Background()
+
+	db, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
+	if err != nil {
+		log.Fatal("DB connection failed", zap.Error(err))
+	}
+	defer db.Close()
+
+	// Проверяем подключение
+	if err := db.Ping(ctx); err != nil {
+		log.Fatal("DB ping failed", zap.Error(err))
+	}
+	log.Info("DB connection established")
+
+	// Инициализируем хранилища и сервисы
+	// rewardRepo := storage.NewPostgresStorage(db)
+	// rewardService := service.NewService(rewardRepo, log)
+	// rewardHandler := handler.NewHandler(rewardService, log)
+
+	// orderRepo := orderstorage.NewPostgresStorage(db)
+	// orderService := orderSrv.NewService(orderRepo, log)
+	// orderHandler := orderHand.NewHandler(orderService, log)
+
+	// Роутер
 	router := chi.NewRouter()
 
-	// Health check endpoint
+	// Health check с проверкой БД
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		// Проверяем подключение к БД
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		if err := db.Ping(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"db_error"}`))
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Ping endpoint
-	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("pong"))
-	})
-
-	// API для goods (наград)
+	// Простые тестовые эндпоинты пока
 	router.Post("/api/goods", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("POST /api/goods")
-
-		var newReward map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&newReward); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid json"})
-			return
-		}
-
-		// Добавляем ID
-		newReward["id"] = len(rewards) + 1
-		rewards = append(rewards, newReward)
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(newReward)
+		w.Write([]byte(`{"match":"test","reward":10,"reward_type":"%"}`))
 	})
 
-	router.Get("/api/goods", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("GET /api/goods")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(rewards)
-	})
-
-	// API для orders
 	router.Post("/api/orders", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("POST /api/orders")
-
-		var order map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid json"})
-			return
-		}
-
-		orderNumber, ok := order["order"].(string)
-		if !ok || orderNumber == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "order number is required"})
-			return
-		}
-
-		// Сохраняем заказ
-		orders[orderNumber] = map[string]interface{}{
-			"order":   orderNumber,
-			"status":  "PROCESSING",
-			"accrual": 0,
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"order":  orderNumber,
-			"status": "REGISTERED",
-		})
+		w.Write([]byte(`{"order":"123456","status":"REGISTERED"}`))
 	})
 
 	router.Get("/api/orders/{number}", func(w http.ResponseWriter, r *http.Request) {
 		number := chi.URLParam(r, "number")
-		log.Infof("GET /api/orders/%s", number)
-
-		order, exists := orders[number]
-		if !exists {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// Симулируем обработку заказа
-		if order["status"] == "PROCESSING" {
-			// Через некоторое время меняем статус
-			orders[number] = map[string]interface{}{
-				"order":   number,
-				"status":  "PROCESSED",
-				"accrual": 100.5,
-			}
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(orders[number])
+		w.Write([]byte(`{"order":"` + number + `","status":"PROCESSED","accrual":100.5}`))
 	})
 
-	// Эндпоинт для тестов - возвращает статус начисления
-	router.Get("/api/accrual/{number}", func(w http.ResponseWriter, r *http.Request) {
-		number := chi.URLParam(r, "number")
-		log.Infof("GET /api/accrual/%s", number)
-
-		// Симулируем разные статусы
-		statuses := []string{"REGISTERED", "PROCESSING", "PROCESSED", "INVALID"}
-		statusIndex := len(number) % len(statuses)
-		status := statuses[statusIndex]
-
-		response := map[string]interface{}{
-			"order":  number,
-			"status": status,
-		}
-
-		if status == "PROCESSED" {
-			response["accrual"] = 500.0
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
-	})
-
-	// Эндпоинт для регистрации магазинов/товаров
-	router.Post("/api/register", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("POST /api/register")
-
-		var data map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid json"})
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":      time.Now().Unix(),
-			"success": true,
-			"data":    data,
-		})
-	})
-
-	// Дефолтный обработчик для всех остальных запросов
-	router.HandleFunc("/*", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("%s %s", r.Method, r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"service": "test-accrual",
-			"status":  "running",
-			"time":    time.Now().Format(time.RFC3339),
-		})
-	})
-
-	// Создаем сервер
+	// Запуск сервера
 	server := &http.Server{
-		Addr:              *runAddr,
+		Addr:              cfg.RunAddress,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
 
-	// Канал для ошибок сервера
 	serverErr := make(chan error, 1)
 	go func() {
-		log.Infof("Accrual server listening on %s", *runAddr)
+		log.Info("Server is ready", zap.String("listening on", cfg.RunAddress))
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
 	}()
 
-	// Проверяем, что сервер запустился
+	// Даем серверу время запуститься и проверяем health
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		// Пробуем несколько раз подключиться
-		for i := 0; i < 10; i++ {
-			resp, err := http.Get(fmt.Sprintf("http://%s/health", *runAddr))
-			if err == nil {
-				resp.Body.Close()
-				log.Info("Accrual server health check passed")
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Get("http://" + cfg.RunAddress + "/health")
+		if err == nil {
+			resp.Body.Close()
+			log.Info("Server health check passed")
+		} else {
+			log.Warn("Health check failed", zap.Error(err))
 		}
-		log.Warn("Accrual server health check failed")
 	}()
 
-	// Обработка сигналов завершения
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
-	// Ждем сигнал завершения или ошибку сервера
+	var errServer error
 	select {
-	case err := <-serverErr:
-		log.Fatalf("Accrual server error: %v", err)
-	case sig := <-shutdown:
-		log.Infof("Received signal: %v. Shutting down accrual server...", sig)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := server.Shutdown(ctx); err != nil {
-			log.Errorf("Error during accrual server shutdown: %v", err)
-		} else {
-			log.Info("Accrual server stopped gracefully")
+	case errServer = <-serverErr:
+		if errServer != nil && errServer != http.ErrServerClosed {
+			log.Fatal("Server crashed", zap.Error(errServer))
 		}
+	case <-shutdown:
+		log.Info("Shutting down server...")
+	}
+
+	ctxShutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctxShutdown); err != nil {
+		log.Error("Failed to gracefully shutdown server", zap.Error(err))
+		os.Exit(1)
+	} else {
+		log.Info("Server stopped")
 	}
 }

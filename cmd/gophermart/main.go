@@ -11,7 +11,6 @@ import (
 
 	"github.com/as-tanais/hofermart/internal/auth"
 	"github.com/as-tanais/hofermart/internal/config"
-	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
 	"github.com/as-tanais/hofermart/internal/postgres"
 	"github.com/as-tanais/hofermart/internal/user/handler"
@@ -26,7 +25,7 @@ func main() {
 
 	log := logger.NewLogger()
 
-	addr := flag.String("a", "", "Server address")
+	addr := flag.String("a", "", "Server address (e.g. :8080)")
 	dsn := flag.String("d", "", "DSN")
 	accrualAddr := flag.String("r", "", "Accrual system address (e.g. http://accrual:8080)")
 
@@ -37,16 +36,20 @@ func main() {
 		log.Fatal("Не удалось загрузить конфигурацию сервера", zap.Error(err))
 	}
 
-	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
-		log.Fatal("Migration failed", zap.Error(err))
-	}
+	log.Info("Applying migrations...")
+	// if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
+	// 	log.Fatal("Migration failed", zap.Error(err))
+	// }
 
 	ctx := context.Background()
 
+	log.Info("Connecting to DB...")
 	pool, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
 	if err != nil {
 		log.Fatal("DB connection failed", zap.Error(err))
 	}
+
+	log.Info("Starting HTTP server...")
 
 	hasher := hasher.NewHasher(5)
 	jwtManager := auth.NewJWTManager("My-strong-sercret-for-JWT-bla-blab-123", 3600)

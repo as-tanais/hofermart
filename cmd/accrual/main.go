@@ -11,13 +11,6 @@ import (
 
 	"github.com/as-tanais/hofermart/internal/config"
 	"github.com/as-tanais/hofermart/internal/logger"
-	orderHand "github.com/as-tanais/hofermart/internal/orders/handler"
-	orderSrv "github.com/as-tanais/hofermart/internal/orders/service"
-	orderstorage "github.com/as-tanais/hofermart/internal/orders/storage"
-	"github.com/as-tanais/hofermart/internal/postgres"
-	"github.com/as-tanais/hofermart/internal/rewards/handler"
-	"github.com/as-tanais/hofermart/internal/rewards/service"
-	"github.com/as-tanais/hofermart/internal/rewards/storage"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -42,38 +35,38 @@ func main() {
 	// 	log.Fatal("Migration failed", zap.Error(err))
 	// }
 
-	log.Info("Connecting to DB...")
-	ctx := context.Background()
+	// log.Info("Connecting to DB...")
+	// ctx := context.Background()
 
-	db, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
-	if err != nil {
-		log.Fatal("DB connection failed", zap.Error(err))
-	}
-	defer db.Close()
+	// db, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
+	// if err != nil {
+	// 	log.Fatal("DB connection failed", zap.Error(err))
+	// }
+	// defer db.Close()
 
 	// Репозиторий
-	rewardRepo := storage.NewPostgresStorage(db)
+	// rewardRepo := storage.NewPostgresStorage(db)
 
-	// Сервис
-	rewardService := service.NewService(rewardRepo, log)
+	// // Сервис
+	// rewardService := service.NewService(rewardRepo, log)
 
-	// Хендлер
-	rewardHandler := handler.NewHandler(rewardService, log)
+	// // Хендлер
+	// rewardHandler := handler.NewHandler(rewardService, log)
 
-	// Репозиторий заказов
-	orderRepo := orderstorage.NewPostgresStorage(db)
+	// // Репозиторий заказов
+	// orderRepo := orderstorage.NewPostgresStorage(db)
 
-	// Сервис заказов
-	orderService := orderSrv.NewService(orderRepo, log)
+	// // Сервис заказов
+	// orderService := orderSrv.NewService(orderRepo, log)
 
-	// Хендлер
-	orderHandler := orderHand.NewHandler(orderService, log)
+	// // Хендлер
+	// orderHandler := orderHand.NewHandler(orderService, log)
 
 	// Роутер
 	router := chi.NewRouter()
-	router.Post("/api/goods", rewardHandler.CreateReward)
-	router.Post("/api/orders", orderHandler.RegisterOrder)
-	router.Get("/api/orders/{number}", orderHandler.GetOrder)
+	// router.Post("/api/goods", rewardHandler.CreateReward)
+	// router.Post("/api/orders", orderHandler.RegisterOrder)
+	// router.Get("/api/orders/{number}", orderHandler.GetOrder)
 
 	// Запуск сервера
 	server := &http.Server{

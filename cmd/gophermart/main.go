@@ -9,16 +9,16 @@ import (
 	"syscall"
 	"time"
 
-	// "github.com/as-tanais/hofermart/internal/auth"
+	"github.com/as-tanais/hofermart/internal/auth"
 	"github.com/as-tanais/hofermart/internal/config"
+	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
+	"github.com/as-tanais/hofermart/internal/postgres"
 
-	// Пока закомментируем БД и миграции
-	// "github.com/as-tanais/hofermart/internal/postgres"
-	// "github.com/as-tanais/hofermart/internal/user/handler"
-	// "github.com/as-tanais/hofermart/internal/user/service"
-	// "github.com/as-tanais/hofermart/internal/user/storage"
-	// "github.com/as-tanais/hofermart/internal/utils/hasher"
+	"github.com/as-tanais/hofermart/internal/user/handler"
+	"github.com/as-tanais/hofermart/internal/user/service"
+	"github.com/as-tanais/hofermart/internal/user/storage"
+	"github.com/as-tanais/hofermart/internal/utils/hasher"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -59,31 +59,28 @@ func main() {
 		log.Fatal("Failed to load config", zap.Error(err))
 	}
 
-	// TODO: Раскомментировать когда понадобится
-	// log.Info("Applying migrations...")
-	// if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
-	// 	log.Fatal("Migration failed", zap.Error(err))
-	// }
+	log.Info("Applying migrations...")
+	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
+		log.Fatal("Migration failed", zap.Error(err))
+	}
 
-	// ctx := context.Background()
+	ctx := context.Background()
 
-	// TODO: Раскомментировать когда понадобится БД
-	// log.Info("Connecting to DB...")
-	// pool, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
-	// if err != nil {
-	// 	log.Fatal("DB connection failed", zap.Error(err))
-	// }
-	// defer pool.Close()
+	log.Info("Connecting to DB...")
+	pool, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
+	if err != nil {
+		log.Fatal("DB connection failed", zap.Error(err))
+	}
+	defer pool.Close()
 
 	log.Info("Starting HTTP server...")
 
-	// TODO: Раскомментировать когда понадобится
-	// hasher := hasher.NewHasher(5)
-	// jwtManager := auth.NewJWTManager("My-strong-secret-for-JWT-bla-blab-123", 3600)
-	//
-	// userRepo := storage.NewUserStorage(pool)
-	// userService := service.NewUserService(userRepo, hasher, log)
-	// userHandler := handler.NewHandler(userService, jwtManager, log)
+	hasher := hasher.NewHasher(5)
+	jwtManager := auth.NewJWTManager("My-strong-secret-for-JWT-bla-blab-123", 3600)
+
+	userRepo := storage.NewUserStorage(pool)
+	userService := service.NewUserService(userRepo, hasher, log)
+	userHandler := handler.NewHandler(userService, jwtManager, log)
 
 	router := chi.NewRouter()
 
@@ -99,39 +96,8 @@ func main() {
 		w.Write([]byte("pong"))
 	})
 
-	// TODO: Раскомментировать когда хендлеры будут готовы
-	// router.Post("/api/user/register", userHandler.Register)
-	// router.Post("/api/user/login", userHandler.Login)
-
-	// Временные заглушки для тестов
-	router.Post("/api/user/register", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("POST /api/user/register called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"test-user-id","token":"test-jwt-token"}`))
-	})
-
-	router.Post("/api/user/login", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("POST /api/user/login called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"test-user-id","token":"test-jwt-token"}`))
-	})
-
-	// Эндпоинт для тестов с accrual системой
-	router.Post("/api/orders", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("POST /api/orders called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		w.Write([]byte(`{"order":"123456","status":"REGISTERED"}`))
-	})
-
-	router.Get("/api/orders", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("GET /api/orders called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[]`))
-	})
+	router.Post("/api/user/register", userHandler.Register)
+	router.Post("/api/user/login", userHandler.Login)
 
 	router.Get("/api/user/balance", func(w http.ResponseWriter, r *http.Request) {
 		log.Info("GET /api/user/balance called")

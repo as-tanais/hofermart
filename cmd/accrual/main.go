@@ -13,6 +13,15 @@ import (
 	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
 	"github.com/as-tanais/hofermart/internal/postgres"
+
+	"github.com/as-tanais/hofermart/internal/rewards/handler"
+	"github.com/as-tanais/hofermart/internal/rewards/service"
+	"github.com/as-tanais/hofermart/internal/rewards/storage"
+
+	orderHand "github.com/as-tanais/hofermart/internal/orders/handler"
+	orderSrv "github.com/as-tanais/hofermart/internal/orders/service"
+	orderstorage "github.com/as-tanais/hofermart/internal/orders/storage"
+
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -65,15 +74,23 @@ func main() {
 	}
 	log.Info("DB connection established")
 
-	// Инициализируем хранилища и сервисы
-	// rewardRepo := storage.NewPostgresStorage(db)
-	// rewardService := service.NewService(rewardRepo, log)
-	// rewardHandler := handler.NewHandler(rewardService, log)
+	// Репозиторий
+	rewardRepo := storage.NewPostgresStorage(db)
 
-	// orderRepo := orderstorage.NewPostgresStorage(db)
-	// orderService := orderSrv.NewService(orderRepo, log)
-	// orderHandler := orderHand.NewHandler(orderService, log)
+	// Сервис
+	rewardService := service.NewService(rewardRepo, log)
 
+	// Хендлер
+	rewardHandler := handler.NewHandler(rewardService, log)
+
+	// Репозиторий заказов
+	orderRepo := orderstorage.NewPostgresStorage(db)
+
+	// Сервис заказов
+	orderService := orderSrv.NewService(orderRepo, log)
+
+	// Хендлер
+	orderHandler := orderHand.NewHandler(orderService, log)
 	// Роутер
 	router := chi.NewRouter()
 
@@ -93,25 +110,10 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Простые тестовые эндпоинты пока
-	router.Post("/api/goods", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"match":"test","reward":10,"reward_type":"%"}`))
-	})
-
-	router.Post("/api/orders", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"order":"123456","status":"REGISTERED"}`))
-	})
-
-	router.Get("/api/orders/{number}", func(w http.ResponseWriter, r *http.Request) {
-		number := chi.URLParam(r, "number")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"order":"` + number + `","status":"PROCESSED","accrual":100.5}`))
-	})
+	// Основные эндпоинты
+	router.Post("/api/goods", rewardHandler.CreateReward)
+	router.Post("/api/orders", orderHandler.RegisterOrder)
+	router.Get("/api/orders/{number}", orderHandler.GetOrder)
 
 	// Запуск сервера
 	server := &http.Server{
@@ -134,7 +136,11 @@ func main() {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get("http://" + cfg.RunAddress + "/health")
+		url := "http://" + cfg.RunAddress + "/health"
+		if cfg.RunAddress[0] == ':' {
+			url = "http://localhost" + cfg.RunAddress + "/health"
+		}
+		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
 			log.Info("Server health check passed")

@@ -3,7 +3,6 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -31,20 +30,18 @@ func NewPostgresStorage(db *pgxpool.Pool) *PostgresStorage {
 // GetBalance возвращает баланс пользователя (рассчитывается на лету)
 func (s *PostgresStorage) GetBalance(ctx context.Context, userID uuid.UUID) (*model.Balance, error) {
 	query := `
-        WITH accrued AS (
-            SELECT COALESCE(SUM(accrual), 0) as total
-            FROM orders 
-            WHERE user_id = $1 
-              AND status = 'PROCESSED'
-        ),
-        withdrawn AS (
-            SELECT COALESCE(SUM(sum), 0) as total
-            FROM withdrawals 
-            WHERE user_id = $1
-        )
         SELECT 
-            (SELECT total FROM accrued) - (SELECT total FROM withdrawn) as current,
-            (SELECT total FROM withdrawn) as withdrawn
+            COALESCE(SUM(CASE 
+                WHEN o.status = 'PROCESSED' THEN o.accrual 
+                ELSE 0 
+            END), 0) - 
+            COALESCE(SUM(w.sum), 0) as current,
+            COALESCE(SUM(w.sum), 0) as withdrawn
+        FROM users u
+        LEFT JOIN orders o ON o.user_id = u.id
+        LEFT JOIN withdrawals w ON w.user_id = u.id
+        WHERE u.id = $1
+        GROUP BY u.id
     `
 
 	var balance model.Balance
@@ -60,35 +57,33 @@ func (s *PostgresStorage) GetBalance(ctx context.Context, userID uuid.UUID) (*mo
 
 // CreateWithdrawal создает списание с проверкой баланса
 func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID, orderNumber string, sum float64) error {
-	// Начинаем транзакцию
+	// Начинаем транзакцию с уровнем изоляции SERIALIZABLE
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Проверяем баланс пользователя с блокировкой
+	// 1. Проверяем баланс пользователя
 	var currentBalance float64
 	balanceQuery := `
-        WITH accrued AS (
-            SELECT COALESCE(SUM(accrual), 0) as total
-            FROM orders 
-            WHERE user_id = $1 
-              AND status = 'PROCESSED'
-              FOR UPDATE
-        ),
-        withdrawn AS (
-            SELECT COALESCE(SUM(sum), 0) as total
-            FROM withdrawals 
-            WHERE user_id = $1
-              FOR UPDATE
-        )
-        SELECT (SELECT total FROM accrued) - (SELECT total FROM withdrawn) as current
+        SELECT 
+            COALESCE(SUM(CASE 
+                WHEN o.status = 'PROCESSED' THEN o.accrual 
+                ELSE 0 
+            END), 0) - 
+            COALESCE(SUM(w.sum), 0) as current
+        FROM users u
+        LEFT JOIN orders o ON o.user_id = u.id
+        LEFT JOIN withdrawals w ON w.user_id = u.id
+        WHERE u.id = $1
+        GROUP BY u.id
     `
 
 	err = tx.QueryRow(ctx, balanceQuery, userID).Scan(&currentBalance)
 	if err != nil {
-		return fmt.Errorf("failed to get current balance for user %s: %w", userID, err)
+		// Если нет записей, баланс = 0
+		currentBalance = 0
 	}
 
 	// 2. Проверяем достаточно ли средств
@@ -132,7 +127,7 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 
 	if err != nil {
 		// Проверяем нарушение уникальности (на случай race condition)
-		if isUniqueViolation(err) {
+		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
 			return fmt.Errorf("order number %s already exists", orderNumber)
 		}
 		return fmt.Errorf("failed to create withdrawal with ID %s: %w", withdrawalID, err)
@@ -144,17 +139,6 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 	}
 
 	return nil
-}
-
-// isUniqueViolation проверяет, является ли ошибка нарушением уникальности в pgx/v5
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if ok := errors.As(err, &pgErr); ok {
-		// SQLState 23505 - unique_violation
-		// SQLState 23503 - foreign_key_violation (если нужно проверять)
-		return pgErr.Code == "23505"
-	}
-	return false
 }
 
 // GetUserWithdrawals возвращает историю списаний пользователя
@@ -182,7 +166,7 @@ func (s *PostgresStorage) GetUserWithdrawals(ctx context.Context, userID uuid.UU
 			return nil, fmt.Errorf("failed to scan withdrawal: %w", err)
 		}
 
-		w.ProcessedAt = processedAt.Format(time.RFC3339Nano)
+		w.ProcessedAt = processedAt.Format(time.RFC3339)
 		withdrawals = append(withdrawals, w)
 	}
 

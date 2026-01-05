@@ -1,4 +1,3 @@
-// Package orders содержит вспомогательные функции для заказов.
 package orders
 
 import (
@@ -6,14 +5,11 @@ import (
 	"unicode"
 )
 
-// IsValidLuhn проверяет, проходит ли строка проверку по алгоритму Луна.
-// Строка должна содержать только цифры.
 func IsValidLuhn(s string) bool {
 	if s == "" {
 		return false
 	}
 
-	// Проверяем, что все символы — цифры
 	for _, r := range s {
 		if !unicode.IsDigit(r) {
 			return false
@@ -24,7 +20,6 @@ func IsValidLuhn(s string) bool {
 	sum := 0
 	double := false
 
-	// Проходим справа налево
 	for i := n - 1; i >= 0; i-- {
 		digit, _ := strconv.Atoi(string(s[i]))
 		if double {

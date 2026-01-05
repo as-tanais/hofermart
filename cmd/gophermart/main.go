@@ -13,11 +13,23 @@ import (
 	"github.com/as-tanais/hofermart/internal/config"
 	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
+	"github.com/as-tanais/hofermart/internal/middleware"
 	"github.com/as-tanais/hofermart/internal/postgres"
 
-	"github.com/as-tanais/hofermart/internal/user/handler"
-	"github.com/as-tanais/hofermart/internal/user/service"
-	"github.com/as-tanais/hofermart/internal/user/storage"
+	// User
+	userHandler "github.com/as-tanais/hofermart/internal/user/handler"
+	userService "github.com/as-tanais/hofermart/internal/user/service"
+	userStorage "github.com/as-tanais/hofermart/internal/user/storage"
+
+	// Order (gophermart)
+	orderHandler "github.com/as-tanais/hofermart/internal/orders/handler"
+	orderService "github.com/as-tanais/hofermart/internal/orders/service"
+	orderStorage "github.com/as-tanais/hofermart/internal/orders/storage"
+
+	balanceHandler "github.com/as-tanais/hofermart/internal/balance/handler"
+	balanceService "github.com/as-tanais/hofermart/internal/balance/service"
+	balanceStorage "github.com/as-tanais/hofermart/internal/balance/storage"
+
 	"github.com/as-tanais/hofermart/internal/utils/hasher"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -75,51 +87,69 @@ func main() {
 
 	log.Info("Starting HTTP server...")
 
+	// Инициализация зависимостей
 	hasher := hasher.NewHasher(5)
-	jwtManager := auth.NewJWTManager("My-strong-secret-for-JWT-bla-blab-123", 3600)
+	jwtManager := auth.NewJWTManager("My-strong-secret-for-JWT-bla-blab-123", 3600*time.Second)
 
-	userRepo := storage.NewUserStorage(pool)
-	userService := service.NewUserService(userRepo, hasher, log)
-	userHandler := handler.NewHandler(userService, jwtManager, log)
+	// User сервисы
+	userRepo := userStorage.NewUserStorage(pool)
+	userSvc := userService.NewUserService(userRepo, hasher, log)
+	userHdl := userHandler.NewHandler(userSvc, jwtManager, log)
 
+	// Order сервисы (gophermart)
+	orderRepo := orderStorage.NewPostgresStorage(pool)
+	orderSvc := orderService.NewService(orderRepo, log)
+	orderHdl := orderHandler.NewHandler(orderSvc, log)
+
+	// Balance
+	balanceRepo := balanceStorage.NewPostgresStorage(pool)
+	balanceSvc := balanceService.NewBalanceService(balanceRepo, log)
+	balanceHdl := balanceHandler.NewBalanceHandler(balanceSvc, log)
+
+	// Создаем роутер
 	router := chi.NewRouter()
 
-	// Обязательно добавьте health check для тестов!
-	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+	router.Group(func(r chi.Router) {
+		// Health checks
+		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok"}`))
+		})
+
+		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pong"))
+		})
+
+		// Регистрация и логин
+		r.Post("/api/user/register", userHdl.Register)
+		r.Post("/api/user/login", userHdl.Login)
 	})
 
-	// Добавим ping для простой проверки
-	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("pong"))
+	// ========== PROTECTED ROUTES (требуют аутентификации) ==========
+	router.Group(func(r chi.Router) {
+		// Применяем middleware проверки аутентификации
+		r.Use(middleware.AuthMiddleware(jwtManager, log))
+
+		// Заказы пользователя
+		r.Post("/api/user/orders", orderHdl.RegisterOrder)
+		r.Get("/api/user/orders", orderHdl.GetUserOrders)
+
+		// Баланс
+		r.Get("/api/user/balance", balanceHdl.GetBalance)
+
+		r.Post("/api/user/balance/withdraw", balanceHdl.Withdraw)
+		r.Get("/api/user/withdrawals", balanceHdl.GetWithdrawals)
+
+		// Логаут (удаляет куку)
+		r.Post("/api/user/logout", func(w http.ResponseWriter, r *http.Request) {
+			middleware.ClearAuthCookie(w)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"message":"logged out"}`))
+		})
 	})
 
-	router.Post("/api/user/register", userHandler.Register)
-	router.Post("/api/user/login", userHandler.Login)
-
-	router.Get("/api/user/balance", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("GET /api/user/balance called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"current":500.5,"withdrawn":100.0}`))
-	})
-
-	router.Post("/api/user/balance/withdraw", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("POST /api/user/balance/withdraw called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"order":"123456","sum":100.0}`))
-	})
-
-	router.Get("/api/user/withdrawals", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("GET /api/user/withdrawals called")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[]`))
-	})
-
+	// Запуск сервера
 	server := &http.Server{
 		Addr:              cfg.RunAddress,
 		Handler:           router,
@@ -137,15 +167,13 @@ func main() {
 		}
 	}()
 
-	// Проверяем что сервер действительно запустился
+	// Проверка запуска
 	go func() {
-		// Даем серверу время на запуск
 		time.Sleep(500 * time.Millisecond)
 
-		// Проверяем health endpoint
 		client := &http.Client{Timeout: 2 * time.Second}
 		url := "http://" + cfg.RunAddress + "/health"
-		// Если адрес начинается с двоеточия, добавляем localhost
+
 		if cfg.RunAddress[0] == ':' {
 			url = "http://localhost" + cfg.RunAddress + "/health"
 		}
@@ -167,11 +195,10 @@ func main() {
 		}
 	}()
 
-	// Ожидаем OS сигналов для graceful shutdown
+	// Graceful shutdown
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
-	// Ждем либо ошибки сервера, либо сигнала завершения
 	select {
 	case errServer := <-serverErr:
 		if errServer != nil && errServer != http.ErrServerClosed {

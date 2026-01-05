@@ -1,18 +1,28 @@
+// internal/orders/storage/repository.go
 package storage
 
 import (
 	"context"
 
 	"github.com/as-tanais/hofermart/internal/orders/model"
+	"github.com/google/uuid"
 )
 
 type Repository interface {
-	// SaveOrder сохраняет заказ и его товары.
-	// Возвращает ошибку, если заказ с таким номером уже существует.
+	// Методы для gophermart
 	SaveOrder(ctx context.Context, order *model.Order) error
-
-	// OrderExists проверяет, существует ли заказ.
 	OrderExists(ctx context.Context, orderNumber string) (bool, error)
-	//Получение информации о расчёте начислений баллов лояльности за совершённый заказ.
 	GetOrderByNumber(ctx context.Context, orderNumber string) (*model.Order, error)
+	GetUserOrders(ctx context.Context, userID uuid.UUID) ([]model.Order, error)
+
+	// Методы для accrual
+	GetOrderForRegistration(ctx context.Context, orderNumber string) (*model.Order, error)
+	UpdateOrderToRegistered(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error
+
+	// Методы для воркера
+	SaveOrderItems(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error
+	UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error
+	GetOrdersByStatus(ctx context.Context, status string, limit int) ([]model.Order, error)
+	GetOrderItems(ctx context.Context, orderID uuid.UUID) ([]model.OrderItem, error)
+	UpdateOrderWithAccrual(ctx context.Context, orderID uuid.UUID, status string, accrual float64) error
 }

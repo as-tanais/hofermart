@@ -18,9 +18,10 @@ import (
 	"github.com/as-tanais/hofermart/internal/rewards/service"
 	"github.com/as-tanais/hofermart/internal/rewards/storage"
 
-	orderHand "github.com/as-tanais/hofermart/internal/orders/handler"
+	accrualHandler "github.com/as-tanais/hofermart/internal/orders/accrual_handler"
 	orderSrv "github.com/as-tanais/hofermart/internal/orders/service"
 	orderstorage "github.com/as-tanais/hofermart/internal/orders/storage"
+	"github.com/as-tanais/hofermart/internal/orders/worker"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -34,7 +35,6 @@ func main() {
 	dbURI := flag.String("d", "postgres://postgres:postgres@localhost:5432/accrual?sslmode=disable", "Database DSN")
 	flag.Parse()
 
-	// ПРИОРИТЕТ: переменные окружения > флаги
 	if envAddr := os.Getenv("RUN_ADDRESS"); envAddr != "" {
 		*runAddr = envAddr
 	}
@@ -51,14 +51,14 @@ func main() {
 		log.Fatal("Failed to load config", zap.Error(err))
 	}
 
-	// 1. Выполняем миграции
+	// миграции
 	log.Info("Applying migrations...")
 	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
 		log.Fatal("Migration failed", zap.Error(err))
 	}
 	log.Info("Migrations applied successfully")
 
-	// 2. Подключаемся к БД
+	// Подключаемся к БД
 	log.Info("Connecting to DB...")
 	ctx := context.Background()
 
@@ -76,21 +76,25 @@ func main() {
 
 	// Репозиторий
 	rewardRepo := storage.NewPostgresStorage(db)
+	orderRepo := orderstorage.NewPostgresStorage(db)
 
 	// Сервис
 	rewardService := service.NewService(rewardRepo, log)
+	orderService := orderSrv.NewService(orderRepo, log)
+
+	accrualWorker := worker.NewAccrualWorker(orderRepo, rewardRepo, log)
 
 	// Хендлер
 	rewardHandler := handler.NewHandler(rewardService, log)
+	accrualOrderHandler := accrualHandler.NewAccrualHandler(orderService, log)
 
-	// Репозиторий заказов
-	orderRepo := orderstorage.NewPostgresStorage(db)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel() // На всякий случай
 
-	// Сервис заказов
-	orderService := orderSrv.NewService(orderRepo, log)
+	// Запускаем воркер с workerCtx
+	go accrualWorker.Start(workerCtx)
+	log.Info("Worker Started")
 
-	// Хендлер
-	orderHandler := orderHand.NewHandler(orderService, log)
 	// Роутер
 	router := chi.NewRouter()
 
@@ -112,8 +116,9 @@ func main() {
 
 	// Основные эндпоинты
 	router.Post("/api/goods", rewardHandler.CreateReward)
-	router.Post("/api/orders", orderHandler.RegisterOrder)
-	router.Get("/api/orders/{number}", orderHandler.GetOrder)
+
+	router.Post("/api/orders", accrualOrderHandler.RegisterOrderWithGoods)
+	router.Get("/api/orders/{number}", accrualOrderHandler.GetOrderStatus)
 
 	// Запуск сервера
 	server := &http.Server{

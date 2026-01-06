@@ -34,6 +34,7 @@ func (s *Service) validateOrderNumber(orderNumber string) error {
 }
 
 // RegisterOrder - регистрация заказа пользователем в Gophermart
+// internal/orders/service/service.go
 func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.CreateOrderReq) error {
 	// 1. Валидация номера заказа
 	if err := s.validateOrderNumber(req.OrderNumber); err != nil {
@@ -48,22 +49,39 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 	}
 
 	if existingOrder != nil {
-		// Заказ уже существует
+		// Заказ уже существует в базе
+
+		// Проверяем привязан ли уже к пользователю
 		if existingOrder.UserID == userID {
-			// Этот же пользователь - возвращаем 200
+			// Этот же пользователь - заказ уже у него
 			return orders.ErrOrderExistsSameUser
-		} else {
-			// Другой пользователь - конфликт 409
+		}
+
+		// Проверяем есть ли вообще пользователь у заказа
+		if existingOrder.UserID != uuid.Nil {
+			// Заказ уже привязан к другому пользователю
 			return orders.ErrOrderExistsOtherUser
 		}
+
+		// Если заказ без пользователя (создан accrual) - привязываем к текущему пользователю
+		// Используем оптимистичную блокировку
+		if err := s.repo.UpdateOrderUser(ctx, existingOrder.ID, userID); err != nil {
+			// Если не удалось обновить (например, уже кто-то привязал)
+			return orders.ErrOrderAlreadyHasUser
+		}
+
+		s.logger.Info("Order attached to user",
+			zap.String("order", req.OrderNumber),
+			zap.String("userID", userID.String()))
+		return nil // Успешно привязали
 	}
 
-	// 3. Создаем заказ со статусом REGISTERED
+	// 3. Заказ не существует - создаем новый
 	order := &model.Order{
 		ID:          uuid.New(),
 		UserID:      userID,
 		OrderNumber: req.OrderNumber,
-		Status:      "REGISTERED", // ← Для Gophermart тоже REGISTERED
+		Status:      "REGISTERED",
 	}
 
 	// 4. Сохраняем заказ
@@ -72,7 +90,7 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 		return err
 	}
 
-	s.logger.Info("Order registered by user",
+	s.logger.Info("Order created by user",
 		zap.String("userID", userID.String()),
 		zap.String("order_number", req.OrderNumber))
 

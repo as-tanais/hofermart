@@ -25,4 +25,5 @@ type Repository interface {
 	GetOrdersByStatus(ctx context.Context, status string, limit int) ([]model.Order, error)
 	GetOrderItems(ctx context.Context, orderID uuid.UUID) ([]model.OrderItem, error)
 	UpdateOrderWithAccrual(ctx context.Context, orderID uuid.UUID, status string, accrual float64) error
+	UpdateOrderUser(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) error
 }

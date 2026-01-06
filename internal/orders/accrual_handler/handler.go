@@ -22,7 +22,6 @@ func NewAccrualHandler(service *service.Service, log *zap.Logger) *OrderHandler 
 	}
 }
 
-// RegisterOrderWithGoods - POST /api/orders в accrual
 func (h *OrderHandler) RegisterOrderWithGoods(w http.ResponseWriter, r *http.Request) {
 	var req dto.AccrualOrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -31,7 +30,6 @@ func (h *OrderHandler) RegisterOrderWithGoods(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Валидация
 	if req.Order == "" {
 		http.Error(w, "номер заказа обязателен", http.StatusBadRequest)
 		return
@@ -49,7 +47,6 @@ func (h *OrderHandler) RegisterOrderWithGoods(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Регистрируем заказ с товарами
 	err := h.service.RegisterOrderWithGoods(r.Context(), &req)
 	if err != nil {
 		h.log.Error("Failed to register order with goods",
@@ -67,13 +64,11 @@ func (h *OrderHandler) RegisterOrderWithGoods(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Возвращаем 202 Accepted как ожидают тесты
 	w.WriteHeader(http.StatusAccepted)
 	h.log.Info("Order registered from accrual successfully",
 		zap.String("order", req.Order))
 }
 
-// GetOrderStatus - GET /api/orders/{number} в accrual
 func (h *OrderHandler) GetOrderStatus(w http.ResponseWriter, r *http.Request) {
 	orderNumber := chi.URLParam(r, "number")
 
@@ -97,7 +92,6 @@ func (h *OrderHandler) GetOrderStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Маппинг внутренних статусов на API статусы
 	statusMap := map[string]string{
 		"NEW":        "REGISTERED",
 		"REGISTERED": "PROCESSING",

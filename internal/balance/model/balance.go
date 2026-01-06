@@ -5,8 +5,8 @@ import "github.com/google/uuid"
 
 type Balance struct {
 	UserID    uuid.UUID `json:"-"`
-	Current   float64   `json:"current"`   // Текущий баланс
-	Withdrawn float64   `json:"withdrawn"` // Сумма использованных баллов
+	Current   float64   `json:"current"`
+	Withdrawn float64   `json:"withdrawn"`
 }
 
 type Withdrawal struct {

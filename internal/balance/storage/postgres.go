@@ -12,13 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Repository interface {
-	GetBalance(ctx context.Context, userID uuid.UUID) (*model.Balance, error)
-	CreateWithdrawal(ctx context.Context, userID uuid.UUID, orderNumber string, sum float64) error
-	GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]model.Withdrawal, error)
-	CheckOrderExists(ctx context.Context, orderNumber string) (bool, error)
-}
-
 type PostgresStorage struct {
 	db *pgxpool.Pool
 }
@@ -27,7 +20,6 @@ func NewPostgresStorage(db *pgxpool.Pool) *PostgresStorage {
 	return &PostgresStorage{db: db}
 }
 
-// GetBalance возвращает баланс пользователя (рассчитывается на лету)
 func (s *PostgresStorage) GetBalance(ctx context.Context, userID uuid.UUID) (*model.Balance, error) {
 	query := `
         SELECT 
@@ -55,16 +47,14 @@ func (s *PostgresStorage) GetBalance(ctx context.Context, userID uuid.UUID) (*mo
 	return &balance, nil
 }
 
-// CreateWithdrawal создает списание с проверкой баланса
 func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID, orderNumber string, sum float64) error {
-	// Начинаем транзакцию с уровнем изоляции SERIALIZABLE
+
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Проверяем баланс пользователя
 	var currentBalance float64
 	balanceQuery := `
         SELECT 
@@ -82,17 +72,14 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 
 	err = tx.QueryRow(ctx, balanceQuery, userID).Scan(&currentBalance)
 	if err != nil {
-		// Если нет записей, баланс = 0
+
 		currentBalance = 0
 	}
 
-	// 2. Проверяем достаточно ли средств
 	if currentBalance < sum {
 		return fmt.Errorf("insufficient funds: current=%.2f, requested=%.2f", currentBalance, sum)
 	}
 
-	// 3. Проверяем уникальность номера заказа
-	// Проверяем как в withdrawals, так и в orders (чтобы один номер не использовался дважды)
 	var exists bool
 	checkQuery := `
         SELECT EXISTS(
@@ -110,7 +97,6 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 		return fmt.Errorf("order number %s already exists", orderNumber)
 	}
 
-	// 4. Создаем запись о списании с UUID
 	insertQuery := `
         INSERT INTO withdrawals (id, user_id, order_number, sum, processed_at)
         VALUES ($1, $2, $3, $4, $5)
@@ -118,22 +104,21 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 
 	withdrawalID := uuid.New()
 	_, err = tx.Exec(ctx, insertQuery,
-		withdrawalID, // $1 - UUID записи
-		userID,       // $2 - UUID пользователя
-		orderNumber,  // $3 - номер заказа
-		sum,          // $4 - сумма
-		time.Now(),   // $5 - время списания
+		withdrawalID,
+		userID,
+		orderNumber,
+		sum,
+		time.Now(),
 	)
 
 	if err != nil {
-		// Проверяем нарушение уникальности (на случай race condition)
+
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
 			return fmt.Errorf("order number %s already exists", orderNumber)
 		}
 		return fmt.Errorf("failed to create withdrawal with ID %s: %w", withdrawalID, err)
 	}
 
-	// 5. Фиксируем транзакцию
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -141,7 +126,6 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 	return nil
 }
 
-// GetUserWithdrawals возвращает историю списаний пользователя
 func (s *PostgresStorage) GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]model.Withdrawal, error) {
 	query := `
         SELECT id, user_id, order_number, sum, processed_at
@@ -177,7 +161,6 @@ func (s *PostgresStorage) GetUserWithdrawals(ctx context.Context, userID uuid.UU
 	return withdrawals, nil
 }
 
-// CheckOrderExists проверяет, существует ли уже заказ
 func (s *PostgresStorage) CheckOrderExists(ctx context.Context, orderNumber string) (bool, error) {
 	query := `
         SELECT EXISTS(

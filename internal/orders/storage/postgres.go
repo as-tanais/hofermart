@@ -1,4 +1,3 @@
-// internal/orders/storage/postgres.go
 package storage
 
 import (
@@ -23,7 +22,6 @@ func NewPostgresStorage(db *pgxpool.Pool) Repository {
 	return &postgresStorage{db: db}
 }
 
-// OrderExists - проверяет существует ли заказ
 func (s *postgresStorage) OrderExists(ctx context.Context, orderNumber string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM orders WHERE order_number = $1)", orderNumber).Scan(&exists)
@@ -33,7 +31,6 @@ func (s *postgresStorage) OrderExists(ctx context.Context, orderNumber string) (
 	return exists, nil
 }
 
-// SaveOrder - сохраняет новый заказ (для gophermart)
 func (s *postgresStorage) SaveOrder(ctx context.Context, order *model.Order) error {
 	query := `
 		INSERT INTO orders (id, user_id, order_number, status)
@@ -49,7 +46,7 @@ func (s *postgresStorage) SaveOrder(ctx context.Context, order *model.Order) err
 
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return orderr.ErrOrderExists
 		}
 		return fmt.Errorf("failed to insert order: %w", err)
@@ -58,7 +55,6 @@ func (s *postgresStorage) SaveOrder(ctx context.Context, order *model.Order) err
 	return nil
 }
 
-// GetOrderByNumber - получает заказ по номеру
 func (s *postgresStorage) GetOrderByNumber(ctx context.Context, orderNumber string) (*model.Order, error) {
 	const query = `
 		SELECT id, user_id, order_number, status, accrual, created_at
@@ -101,7 +97,6 @@ func (s *postgresStorage) GetOrderByNumber(ctx context.Context, orderNumber stri
 	return order, nil
 }
 
-// SaveOrderItems - сохраняет товары заказа
 func (s *postgresStorage) SaveOrderItems(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -123,7 +118,6 @@ func (s *postgresStorage) SaveOrderItems(ctx context.Context, orderID uuid.UUID,
 	return tx.Commit(ctx)
 }
 
-// UpdateOrderStatus - обновляет статус заказа
 func (s *postgresStorage) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE orders 
@@ -138,7 +132,6 @@ func (s *postgresStorage) UpdateOrderStatus(ctx context.Context, orderID uuid.UU
 	return nil
 }
 
-// UpdateOrderWithAccrual - обновляет статус и accrual заказа (для воркера)
 func (s *postgresStorage) UpdateOrderWithAccrual(ctx context.Context, orderID uuid.UUID, status string, accrual float64) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE orders 
@@ -153,7 +146,6 @@ func (s *postgresStorage) UpdateOrderWithAccrual(ctx context.Context, orderID uu
 	return nil
 }
 
-// GetOrdersByStatus - получает заказы по статусу (для воркера)
 func (s *postgresStorage) GetOrdersByStatus(ctx context.Context, status string, limit int) ([]model.Order, error) {
 	query := `
 		SELECT id, user_id, order_number, status, accrual, created_at
@@ -187,7 +179,6 @@ func (s *postgresStorage) GetOrdersByStatus(ctx context.Context, status string, 
 			return orders, fmt.Errorf("failed to scan order: %w", err)
 		}
 
-		// Конвертируем userID
 		if userIDStr != nil {
 			order.UserID, err = uuid.Parse(*userIDStr)
 			if err != nil {
@@ -209,7 +200,6 @@ func (s *postgresStorage) GetOrdersByStatus(ctx context.Context, status string, 
 	return orders, nil
 }
 
-// GetOrderItems - получает товары заказа (для воркера)
 func (s *postgresStorage) GetOrderItems(ctx context.Context, orderID uuid.UUID) ([]model.OrderItem, error) {
 	query := `
 		SELECT id, order_id, description, price
@@ -253,9 +243,6 @@ func (s *postgresStorage) GetOrderItems(ctx context.Context, orderID uuid.UUID) 
 	return items, nil
 }
 
-// НОВЫЕ МЕТОДЫ ДЛЯ ACCRUAL:
-
-// GetOrderForRegistration - получает заказ со статусом NEW для accrual
 func (s *postgresStorage) GetOrderForRegistration(ctx context.Context, orderNumber string) (*model.Order, error) {
 	const query = `
 		SELECT id, user_id, order_number, status, created_at
@@ -281,7 +268,6 @@ func (s *postgresStorage) GetOrderForRegistration(ctx context.Context, orderNumb
 		return nil, fmt.Errorf("failed to get order for registration: %w", err)
 	}
 
-	// Конвертируем userID
 	if userIDStr != nil {
 		order.UserID, err = uuid.Parse(*userIDStr)
 		if err != nil {
@@ -292,7 +278,6 @@ func (s *postgresStorage) GetOrderForRegistration(ctx context.Context, orderNumb
 	return order, nil
 }
 
-// UpdateOrderToRegistered - обновляет заказ до REGISTERED и добавляет товары
 func (s *postgresStorage) UpdateOrderToRegistered(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -300,7 +285,6 @@ func (s *postgresStorage) UpdateOrderToRegistered(ctx context.Context, orderID u
 	}
 	defer tx.Rollback(ctx)
 
-	// Обновляем статус заказа
 	_, err = tx.Exec(ctx, `
 		UPDATE orders 
 		SET status = 'REGISTERED'
@@ -324,7 +308,6 @@ func (s *postgresStorage) UpdateOrderToRegistered(ctx context.Context, orderID u
 	return tx.Commit(ctx)
 }
 
-// GetUserOrders - получает заказы пользователя (для GET /api/user/orders)
 func (s *postgresStorage) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]model.Order, error) {
 	query := `
 		SELECT id, order_number, status, accrual, created_at
@@ -370,7 +353,6 @@ func (s *postgresStorage) GetUserOrders(ctx context.Context, userID uuid.UUID) (
 	return orders, nil
 }
 
-// UpdateOrderUser - обновляет пользователя заказа
 func (s *postgresStorage) UpdateOrderUser(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) error {
 	query := `
 		UPDATE orders 
@@ -392,7 +374,7 @@ func (s *postgresStorage) UpdateOrderUser(ctx context.Context, orderID uuid.UUID
 }
 
 func (s *postgresStorage) UpdateOrderUserAndStatus(ctx context.Context, orderID, userID uuid.UUID, status string) error {
-	// Проверяем И NULL И uuid.Nil
+
 	query := `
 		UPDATE orders 
 		SET user_id = $1, status = $2
@@ -406,7 +388,7 @@ func (s *postgresStorage) UpdateOrderUserAndStatus(ctx context.Context, orderID,
 
 	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
-		// Проверяем текущее состояние для информативного сообщения
+
 		var currentUserID uuid.UUID
 		var currentStatus string
 		checkQuery := `SELECT user_id, status FROM orders WHERE id = $1`

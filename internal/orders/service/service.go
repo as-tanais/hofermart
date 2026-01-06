@@ -33,9 +33,8 @@ func (s *Service) validateOrderNumber(orderNumber string) error {
 	return nil
 }
 
-// RegisterOrder - регистрация заказа пользователем в Gophermart
 func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.CreateOrderReq) error {
-	// 1. Валидация номера заказа
+
 	if err := s.validateOrderNumber(req.OrderNumber); err != nil {
 		return err
 	}
@@ -44,7 +43,6 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 		zap.String("userID", userID.String()),
 		zap.String("order", req.OrderNumber))
 
-	// 2. Проверяем существование заказа
 	existingOrder, err := s.repo.GetOrderByNumber(ctx, req.OrderNumber)
 	if err != nil {
 		s.logger.Error("Failed to check order", zap.Error(err))
@@ -58,49 +56,43 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 			zap.String("existingUserID", existingOrder.UserID.String()),
 			zap.String("currentUserID", userID.String()))
 
-		// Логика по статусам:
-		// 1. Если заказ в статусе REGISTERED и без пользователя
 		if existingOrder.Status == "REGISTERED" && existingOrder.UserID == uuid.Nil {
-			// Привязываем к пользователю и меняем статус на NEW
+
 			s.logger.Info("Attaching REGISTERED order to user, changing to NEW")
 
 			if err := s.repo.UpdateOrderUserAndStatus(ctx, existingOrder.ID, userID, "NEW"); err != nil {
 				s.logger.Error("Failed to update order", zap.Error(err))
 				return err
 			}
-			return nil // Успех → 202 Accepted
+			return nil
 		}
 
-		// 2. Если заказ уже в статусе NEW (после привязки)
 		if existingOrder.Status == "NEW" {
-			// Проверяем принадлежность пользователю
+
 			if existingOrder.UserID == userID {
 				s.logger.Info("Order already in NEW status for same user")
-				return orders.ErrOrderExistsSameUser // → 200 OK
+				return orders.ErrOrderExistsSameUser
 			}
 			s.logger.Warn("Order in NEW status but belongs to other user")
-			return orders.ErrOrderExistsOtherUser // → 409 Conflict
+			return orders.ErrOrderExistsOtherUser
 		}
 
-		// 3. Если заказ в других статусах (PROCESSING, PROCESSED, INVALID)
 		s.logger.Warn("Order exists in non-NEW status",
 			zap.String("status", existingOrder.Status))
 
-		// Проверяем пользователя
 		if existingOrder.UserID == userID {
-			return orders.ErrOrderExistsSameUser // → 200 OK
+			return orders.ErrOrderExistsSameUser
 		}
-		return orders.ErrOrderExistsOtherUser // → 409 Conflict
+		return orders.ErrOrderExistsOtherUser
 	}
 
-	// 3. Заказ не существует - создаем новый со статусом NEW
 	s.logger.Info("Creating new order with status NEW")
 
 	order := &model.Order{
 		ID:          uuid.New(),
 		UserID:      userID,
 		OrderNumber: req.OrderNumber,
-		Status:      "NEW", // ← Ставим NEW сразу
+		Status:      "NEW",
 	}
 
 	if err := s.repo.SaveOrder(ctx, order); err != nil {
@@ -128,21 +120,19 @@ func (s *Service) GetOrder(ctx context.Context, orderNumber string) (*model.Orde
 	return order, nil
 }
 
-// RegisterOrderWithGoods - регистрирует заказ с товарами от системы accrual
 func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOrderRequest) error {
-	// 1. Проверяем валидность номера заказа
+
 	if !orders.IsValidLuhn(req.Order) {
 		return fmt.Errorf("invalid order number")
 	}
 
-	// 2. Проверяем существование заказа
 	order, err := s.repo.GetOrderByNumber(ctx, req.Order)
 	if err != nil {
 		return fmt.Errorf("failed to get order: %w", err)
 	}
 
 	if order == nil {
-		// Создаем новый заказ без пользователя
+
 		order = &model.Order{
 			ID:          uuid.New(),
 			OrderNumber: req.Order,
@@ -153,15 +143,13 @@ func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOr
 			return fmt.Errorf("failed to save order: %w", err)
 		}
 	} else {
-		// Если заказ уже существует, проверяем статус
-		// Если уже обрабатывается или обработан - ошибка
+
 		if order.Status == "PROCESSING" || order.Status == "PROCESSED" || order.Status == "INVALID" {
 			return fmt.Errorf("order already processed")
 		}
-		// Если статус REGISTERED - можно обновить товары
+
 	}
 
-	// 3. Сохраняем/обновляем товары
 	items := make([]model.OrderItem, len(req.Goods))
 	for i, good := range req.Goods {
 		items[i] = model.OrderItem{

@@ -27,7 +27,7 @@ func NewHandler(service *service.Service, logger *zap.Logger) *Handler {
 }
 
 func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
-	// 1. Проверяем аутентификацию
+
 	userID, ok := middleware.GetUserIDFromContext(r.Context())
 	if !ok {
 		h.logger.Warn("User not authenticated")
@@ -35,13 +35,12 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Читаем номер заказа как plain text
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Warn("Failed to read request body",
 			zap.String("userID", userID.String()),
 			zap.Error(err))
-		http.Error(w, "Неверный формат запроса", http.StatusBadRequest) // 400
+		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
@@ -50,7 +49,7 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 	if orderNumber == "" {
 		h.logger.Warn("Empty order number",
 			zap.String("userID", userID.String()))
-		http.Error(w, "Неверный формат запроса", http.StatusBadRequest) // 400
+		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
 
@@ -58,21 +57,18 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 		zap.String("userID", userID.String()),
 		zap.String("order", orderNumber))
 
-	// 3. Валидируем номер заказа (алгоритм Луна)
 	if !orders.IsValidLuhn(orderNumber) {
 		h.logger.Warn("Invalid order number (Luhn check failed)",
 			zap.String("userID", userID.String()),
 			zap.String("order", orderNumber))
-		http.Error(w, "Неверный формат номера заказа", http.StatusUnprocessableEntity) // 422
+		http.Error(w, "Неверный формат номера заказа", http.StatusUnprocessableEntity)
 		return
 	}
 
-	// 4. Создаем DTO
 	req := dto.CreateOrderReq{
 		OrderNumber: orderNumber,
 	}
 
-	// 5. Вызываем сервис
 	err = h.service.RegisterOrder(r.Context(), userID, &req)
 	if err != nil {
 		h.logger.Warn("RegisterOrder service error",
@@ -80,38 +76,36 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 			zap.String("order", orderNumber),
 			zap.Error(err))
 
-		// ТОЧНО по спецификации:
 		switch {
 		case errors.Is(err, orders.ErrInvalidData):
-			http.Error(w, "Неверный формат номера заказа", http.StatusUnprocessableEntity) // 422
+			http.Error(w, "Неверный формат номера заказа", http.StatusUnprocessableEntity)
 
 		case errors.Is(err, orders.ErrOrderExistsSameUser):
 			h.logger.Info("Order already registered by same user",
 				zap.String("userID", userID.String()),
 				zap.String("order", orderNumber))
-			w.WriteHeader(http.StatusOK) // 200 - номер заказа уже был загружен этим пользователем
+			w.WriteHeader(http.StatusOK)
 
 		case errors.Is(err, orders.ErrOrderExistsOtherUser):
 			h.logger.Warn("Order already registered by other user",
 				zap.String("userID", userID.String()),
 				zap.String("order", orderNumber))
-			http.Error(w, "Номер заказа уже был загружен другим пользователем", http.StatusConflict) // 409
+			http.Error(w, "Номер заказа уже был загружен другим пользователем", http.StatusConflict)
 
 		default:
 			h.logger.Error("Internal server error in RegisterOrder",
 				zap.String("userID", userID.String()),
 				zap.String("order", orderNumber),
 				zap.Error(err))
-			http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError) // 500
+			http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
 		}
 		return
 	}
 
-	// 6. Успех - новый номер заказа принят
 	h.logger.Info("Order accepted for processing",
 		zap.String("userID", userID.String()),
 		zap.String("order", orderNumber))
-	w.WriteHeader(http.StatusAccepted) // 202 - новый номер заказа принят в обработку
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
@@ -152,16 +146,14 @@ func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// GetUserOrders - GET /api/user/orders
 func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
-	// 1. Проверяем аутентификацию
+
 	userID, ok := middleware.GetUserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Пользователь не аутентифицирован", http.StatusUnauthorized)
 		return
 	}
 
-	// 2. Получаем заказы пользователя
 	orders, err := h.service.GetUserOrders(r.Context(), userID)
 	if err != nil {
 		h.logger.Error("Failed to get user orders",
@@ -171,10 +163,9 @@ func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Конвертируем в API формат
 	responses := make([]dto.OrderResponse, len(orders))
 	for i, order := range orders {
-		// Маппинг внутренних статусов на API статусы
+
 		statusMap := map[string]string{
 			"NEW":        "NEW",
 			"REGISTERED": "PROCESSING",
@@ -188,7 +179,6 @@ func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 			apiStatus = "INVALID"
 		}
 
-		// Форматируем дату в RFC3339
 		uploadedAt := ""
 		if !order.CreatedAt.IsZero() {
 			uploadedAt = order.CreatedAt.Format(time.RFC3339)
@@ -202,7 +192,6 @@ func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Возвращаем ответ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 

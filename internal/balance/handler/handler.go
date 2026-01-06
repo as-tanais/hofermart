@@ -1,4 +1,3 @@
-// internal/balance/handler/handler.go
 package handler
 
 import (
@@ -22,16 +21,14 @@ func NewBalanceHandler(service *service.BalanceService, log *zap.Logger) *Balanc
 	}
 }
 
-// GetBalance - GET /api/user/balance
 func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
-	// 1. Проверяем аутентификацию
+
 	userID, ok := middleware.GetUserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Пользователь не аутентифицирован", http.StatusUnauthorized)
 		return
 	}
 
-	// 2. Получаем баланс
 	balance, err := h.service.GetBalance(r.Context(), userID)
 	if err != nil {
 		h.log.Error("Failed to get user balance",
@@ -41,7 +38,6 @@ func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Возвращаем ответ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -52,16 +48,14 @@ func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Withdraw - POST /api/user/balance/withdraw
 func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
-	// 1. Проверяем аутентификацию
+
 	userID, ok := middleware.GetUserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Пользователь не аутентифицирован", http.StatusUnauthorized)
 		return
 	}
 
-	// 2. Декодируем запрос
 	var withdrawRequest struct {
 		Order string  `json:"order"`
 		Sum   float64 `json:"sum"`
@@ -75,7 +69,6 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Валидация входных данных
 	if withdrawRequest.Order == "" || withdrawRequest.Sum <= 0 {
 		h.log.Warn("Invalid withdraw request data",
 			zap.String("userID", userID.String()),
@@ -85,7 +78,6 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Выполняем списание
 	err := h.service.Withdraw(r.Context(), userID, withdrawRequest.Order, withdrawRequest.Sum)
 	if err != nil {
 		switch err {
@@ -106,20 +98,17 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Возвращаем успешный ответ
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetWithdrawals - GET /api/user/withdrawals
 func (h *BalanceHandler) GetWithdrawals(w http.ResponseWriter, r *http.Request) {
-	// 1. Проверяем аутентификацию
+
 	userID, ok := middleware.GetUserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Пользователь не аутентифицирован", http.StatusUnauthorized)
 		return
 	}
 
-	// 2. Получаем историю списаний
 	withdrawals, err := h.service.GetUserWithdrawals(r.Context(), userID)
 	if err != nil {
 		h.log.Error("Failed to get user withdrawals",
@@ -129,13 +118,11 @@ func (h *BalanceHandler) GetWithdrawals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 3. Если списаний нет, возвращаем 204
 	if len(withdrawals) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// 4. Возвращаем список списаний
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 

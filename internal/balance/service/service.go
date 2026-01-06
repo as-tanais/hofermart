@@ -1,4 +1,3 @@
-// internal/balance/service/service.go
 package service
 
 import (
@@ -31,7 +30,6 @@ func NewBalanceService(repo storage.Repository, log *zap.Logger) *BalanceService
 	}
 }
 
-// GetBalance возвращает баланс пользователя
 func (s *BalanceService) GetBalance(ctx context.Context, userID uuid.UUID) (*model.Balance, error) {
 	balance, err := s.repo.GetBalance(ctx, userID)
 	if err != nil {
@@ -49,9 +47,8 @@ func (s *BalanceService) GetBalance(ctx context.Context, userID uuid.UUID) (*mod
 	return balance, nil
 }
 
-// Withdraw списывает средства с баланса
 func (s *BalanceService) Withdraw(ctx context.Context, userID uuid.UUID, order string, sum float64) error {
-	// 1. Валидация номера заказа (алгоритм Луна)
+
 	if !orders.IsValidLuhn(order) {
 		s.log.Warn("Invalid order number (Luhn check failed)",
 			zap.String("order", order),
@@ -59,7 +56,6 @@ func (s *BalanceService) Withdraw(ctx context.Context, userID uuid.UUID, order s
 		return ErrInvalidOrderNumber
 	}
 
-	// 2. Проверяем положительную сумму
 	if sum <= 0 {
 		s.log.Warn("Invalid withdrawal amount",
 			zap.Float64("sum", sum),
@@ -67,7 +63,6 @@ func (s *BalanceService) Withdraw(ctx context.Context, userID uuid.UUID, order s
 		return errors.New("amount must be positive")
 	}
 
-	// 3. Создаем списание
 	err := s.repo.CreateWithdrawal(ctx, userID, order, sum)
 	if err != nil {
 		errMsg := err.Error()
@@ -102,7 +97,6 @@ func (s *BalanceService) Withdraw(ctx context.Context, userID uuid.UUID, order s
 	return nil
 }
 
-// GetUserWithdrawals возвращает историю списаний
 func (s *BalanceService) GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]model.Withdrawal, error) {
 	withdrawals, err := s.repo.GetUserWithdrawals(ctx, userID)
 	if err != nil {

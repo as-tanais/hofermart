@@ -8,5 +8,5 @@ var (
 
 	ErrOrderExistsSameUser  = errors.New("order already exists for same user")
 	ErrOrderExistsOtherUser = errors.New("order already exists for other user")
-	ErrOrderAlreadyHasUser  = errors.New("order already has user")
+	// ErrOrderAlreadyHasUser  = errors.New("order already has user")
 )

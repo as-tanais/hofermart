@@ -98,7 +98,7 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
         SELECT EXISTS(
             SELECT 1 FROM withdrawals WHERE order_number = $1
             UNION ALL
-            SELECT 1 FROM orders WHERE number = $1
+            SELECT 1 FROM orders WHERE order_number = $1
         )
     `
 	err = tx.QueryRow(ctx, checkQuery, orderNumber).Scan(&exists)

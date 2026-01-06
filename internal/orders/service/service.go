@@ -33,6 +33,7 @@ func (s *Service) validateOrderNumber(orderNumber string) error {
 	return nil
 }
 
+// RegisterOrder - регистрация заказа пользователем в Gophermart
 func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.CreateOrderReq) error {
 	// 1. Валидация номера заказа
 	if err := s.validateOrderNumber(req.OrderNumber); err != nil {
@@ -57,13 +58,12 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 		}
 	}
 
-	// 3. Создаем заказ со статусом NEW (без товаров!)
+	// 3. Создаем заказ со статусом REGISTERED
 	order := &model.Order{
 		ID:          uuid.New(),
 		UserID:      userID,
 		OrderNumber: req.OrderNumber,
-		Status:      "NEW", // Важно: заглавными буквами
-		// Items НЕ заполняем - товары добавит accrual позже
+		Status:      "REGISTERED", // ← Для Gophermart тоже REGISTERED
 	}
 
 	// 4. Сохраняем заказ

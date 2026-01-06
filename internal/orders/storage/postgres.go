@@ -391,13 +391,11 @@ func (s *postgresStorage) UpdateOrderUser(ctx context.Context, orderID uuid.UUID
 	return nil
 }
 
-// internal/orders/storage/postgres.go
-// internal/orders/storage/postgres.go
 func (s *postgresStorage) UpdateOrderUserAndStatus(ctx context.Context, orderID, userID uuid.UUID, status string) error {
 	// Проверяем И NULL И uuid.Nil
 	query := `
 		UPDATE orders 
-		SET user_id = $1, status = $2, updated_at = CURRENT_TIMESTAMP
+		SET user_id = $1, status = $2
 		WHERE id = $3 AND (user_id IS NULL OR user_id = '00000000-0000-0000-0000-000000000000')
 	`
 

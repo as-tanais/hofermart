@@ -34,12 +34,15 @@ func (s *Service) validateOrderNumber(orderNumber string) error {
 }
 
 // RegisterOrder - регистрация заказа пользователем в Gophermart
-// internal/orders/service/service.go
 func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.CreateOrderReq) error {
 	// 1. Валидация номера заказа
 	if err := s.validateOrderNumber(req.OrderNumber); err != nil {
 		return err
 	}
+
+	s.logger.Info("Checking order existence",
+		zap.String("userID", userID.String()),
+		zap.String("order", req.OrderNumber))
 
 	// 2. Проверяем существование заказа
 	existingOrder, err := s.repo.GetOrderByNumber(ctx, req.OrderNumber)
@@ -49,39 +52,62 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 	}
 
 	if existingOrder != nil {
-		// Заказ уже существует в базе
+		s.logger.Info("Order already exists in DB",
+			zap.String("order", req.OrderNumber),
+			zap.String("status", existingOrder.Status),
+			zap.String("existingUserID", existingOrder.UserID.String()),
+			zap.String("currentUserID", userID.String()),
+			zap.Bool("sameUser", existingOrder.UserID == userID),
+			zap.Bool("hasUser", existingOrder.UserID != uuid.Nil))
 
 		// Проверяем привязан ли уже к пользователю
 		if existingOrder.UserID == userID {
 			// Этот же пользователь - заказ уже у него
+			s.logger.Info("Order already belongs to same user",
+				zap.String("userID", userID.String()),
+				zap.String("order", req.OrderNumber))
 			return orders.ErrOrderExistsSameUser
 		}
 
 		// Проверяем есть ли вообще пользователь у заказа
 		if existingOrder.UserID != uuid.Nil {
 			// Заказ уже привязан к другому пользователю
+			s.logger.Warn("Order already belongs to different user",
+				zap.String("order", req.OrderNumber),
+				zap.String("existingUserID", existingOrder.UserID.String()),
+				zap.String("currentUserID", userID.String()))
 			return orders.ErrOrderExistsOtherUser
 		}
 
+		s.logger.Info("Trying to attach order to user (order has no user)",
+			zap.String("order", req.OrderNumber),
+			zap.String("userID", userID.String()))
+
 		// Если заказ без пользователя (создан accrual) - привязываем к текущему пользователю
-		// Используем оптимистичную блокировку
 		if err := s.repo.UpdateOrderUser(ctx, existingOrder.ID, userID); err != nil {
-			// Если не удалось обновить (например, уже кто-то привязал)
+			s.logger.Warn("Failed to attach order to user",
+				zap.String("order", req.OrderNumber),
+				zap.String("userID", userID.String()),
+				zap.Error(err))
 			return orders.ErrOrderAlreadyHasUser
 		}
 
-		s.logger.Info("Order attached to user",
+		s.logger.Info("Order successfully attached to user",
 			zap.String("order", req.OrderNumber),
 			zap.String("userID", userID.String()))
 		return nil // Успешно привязали
 	}
 
 	// 3. Заказ не существует - создаем новый
+	s.logger.Info("Creating new order",
+		zap.String("userID", userID.String()),
+		zap.String("order", req.OrderNumber))
+
 	order := &model.Order{
 		ID:          uuid.New(),
 		UserID:      userID,
 		OrderNumber: req.OrderNumber,
-		Status:      "NEW",
+		Status:      "REGISTERED",
 	}
 
 	// 4. Сохраняем заказ

@@ -81,7 +81,7 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 		ID:          uuid.New(),
 		UserID:      userID,
 		OrderNumber: req.OrderNumber,
-		Status:      "REGISTERED",
+		Status:      "NEW",
 	}
 
 	// 4. Сохраняем заказ

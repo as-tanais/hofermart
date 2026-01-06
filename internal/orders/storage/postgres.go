@@ -369,3 +369,24 @@ func (s *postgresStorage) GetUserOrders(ctx context.Context, userID uuid.UUID) (
 
 	return orders, nil
 }
+
+// UpdateOrderUser - обновляет пользователя заказа
+func (s *postgresStorage) UpdateOrderUser(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) error {
+	query := `
+		UPDATE orders 
+		SET user_id = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2 AND user_id IS NULL
+	`
+
+	result, err := s.db.Exec(ctx, query, userID, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order user: %w", err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("order already has user")
+	}
+
+	return nil
+}

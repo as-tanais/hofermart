@@ -30,6 +30,7 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 	// 1. Проверяем аутентификацию
 	userID, ok := middleware.GetUserIDFromContext(r.Context())
 	if !ok {
+		h.logger.Warn("User not authenticated")
 		http.Error(w, "Пользователь не аутентифицирован", http.StatusUnauthorized)
 		return
 	}
@@ -37,18 +38,31 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 	// 2. Читаем номер заказа как plain text (не JSON!)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		h.logger.Warn("Failed to read request body",
+			zap.String("userID", userID.String()),
+			zap.Error(err))
 		http.Error(w, "Не удалось прочитать тело запроса", http.StatusBadRequest)
 		return
 	}
+	defer r.Body.Close()
 
 	orderNumber := strings.TrimSpace(string(body))
 	if orderNumber == "" {
+		h.logger.Warn("Empty order number",
+			zap.String("userID", userID.String()))
 		http.Error(w, "Номер заказа не может быть пустым", http.StatusBadRequest)
 		return
 	}
 
+	h.logger.Info("Registering order",
+		zap.String("userID", userID.String()),
+		zap.String("order", orderNumber))
+
 	// 3. Валидируем номер заказа
 	if !orders.IsValidLuhn(orderNumber) {
+		h.logger.Warn("Invalid order number format",
+			zap.String("userID", userID.String()),
+			zap.String("order", orderNumber))
 		http.Error(w, "Неверный формат номера заказа", http.StatusUnprocessableEntity) // 422
 		return
 	}
@@ -61,26 +75,54 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 	// 5. Вызываем сервис с userID
 	err = h.service.RegisterOrder(r.Context(), userID, &req)
 	if err != nil {
-		h.logger.Warn("RegisterOrder error",
+		h.logger.Warn("RegisterOrder service error",
 			zap.String("userID", userID.String()),
 			zap.String("order", orderNumber),
 			zap.Error(err))
 
+		// Проверяем разные типы ошибок
 		switch {
 		case errors.Is(err, orders.ErrInvalidData):
 			http.Error(w, "неверный формат номера заказа", http.StatusUnprocessableEntity) // 422
+
 		case errors.Is(err, orders.ErrOrderExistsSameUser):
+			h.logger.Info("Order already registered by same user",
+				zap.String("userID", userID.String()),
+				zap.String("order", orderNumber))
 			w.WriteHeader(http.StatusOK) // 200 - уже загружен этим пользователем
-			return
+
 		case errors.Is(err, orders.ErrOrderExistsOtherUser):
+			h.logger.Warn("Order already registered by other user",
+				zap.String("userID", userID.String()),
+				zap.String("order", orderNumber))
 			http.Error(w, "номер заказа уже был загружен другим пользователем", http.StatusConflict) // 409
+
+		case errors.Is(err, orders.ErrOrderAlreadyHasUser):
+			h.logger.Warn("Order already has user (race condition)",
+				zap.String("userID", userID.String()),
+				zap.String("order", orderNumber))
+			http.Error(w, "номер заказа уже был загружен другим пользователем", http.StatusConflict) // 409
+
 		default:
-			http.Error(w, "внутренняя ошибка сервера", http.StatusInternalServerError) // 500
+			// Проверяем текст ошибки (для совместимости со старым кодом)
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "order already has user") {
+				http.Error(w, "номер заказа уже был загружен другим пользователем", http.StatusConflict)
+			} else {
+				h.logger.Error("Internal server error in RegisterOrder",
+					zap.String("userID", userID.String()),
+					zap.String("order", orderNumber),
+					zap.Error(err))
+				http.Error(w, "внутренняя ошибка сервера", http.StatusInternalServerError) // 500
+			}
 		}
 		return
 	}
 
 	// 6. Возвращаем успех
+	h.logger.Info("Order registered successfully",
+		zap.String("userID", userID.String()),
+		zap.String("order", orderNumber))
 	w.WriteHeader(http.StatusAccepted) // 202 - принят в обработку
 }
 

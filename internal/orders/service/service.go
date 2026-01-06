@@ -95,23 +95,40 @@ func (s *Service) GetOrder(ctx context.Context, orderNumber string) (*model.Orde
 	return order, nil
 }
 
-// RegisterOrderWithGoods - добавляет товары к заказу и меняет статус на REGISTERED
+// RegisterOrderWithGoods - регистрирует заказ с товарами от системы accrual
 func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOrderRequest) error {
-	// 1. Находим заказ со статусом NEW
+	// 1. Проверяем валидность номера заказа
+	if !orders.IsValidLuhn(req.Order) {
+		return fmt.Errorf("invalid order number")
+	}
+
+	// 2. Проверяем существование заказа
 	order, err := s.repo.GetOrderByNumber(ctx, req.Order)
 	if err != nil {
 		return fmt.Errorf("failed to get order: %w", err)
 	}
 
 	if order == nil {
-		return fmt.Errorf("order not found: %s", req.Order)
+		// Создаем новый заказ без пользователя
+		order = &model.Order{
+			ID:          uuid.New(),
+			OrderNumber: req.Order,
+			Status:      "REGISTERED", // ← Accrual статус!
+		}
+
+		if err := s.repo.SaveOrder(ctx, order); err != nil {
+			return fmt.Errorf("failed to save order: %w", err)
+		}
+	} else {
+		// Если заказ уже существует, проверяем статус
+		// Если уже обрабатывается или обработан - ошибка
+		if order.Status == "PROCESSING" || order.Status == "PROCESSED" || order.Status == "INVALID" {
+			return fmt.Errorf("order already processed")
+		}
+		// Если статус REGISTERED - можно обновить товары
 	}
 
-	if order.Status != "NEW" {
-		return fmt.Errorf("order not found or not in NEW status")
-	}
-
-	// 2. Сохраняем товары
+	// 3. Сохраняем/обновляем товары
 	items := make([]model.OrderItem, len(req.Goods))
 	for i, good := range req.Goods {
 		items[i] = model.OrderItem{
@@ -126,12 +143,7 @@ func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOr
 		return fmt.Errorf("failed to save order items: %w", err)
 	}
 
-	// 3. Меняем статус на REGISTERED
-	if err := s.repo.UpdateOrderStatus(ctx, order.ID, "REGISTERED"); err != nil {
-		return fmt.Errorf("failed to update order status: %w", err)
-	}
-
-	s.logger.Info("Order registered with goods",
+	s.logger.Info("Order registered with goods from accrual",
 		zap.String("order", req.Order),
 		zap.Int("goods_count", len(items)))
 

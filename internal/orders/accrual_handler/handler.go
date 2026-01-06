@@ -56,16 +56,21 @@ func (h *OrderHandler) RegisterOrderWithGoods(w http.ResponseWriter, r *http.Req
 			zap.String("order", req.Order),
 			zap.Error(err))
 
-		// Проверяем тип ошибки
-		if err.Error() == "order not found or not in NEW status" {
-			http.Error(w, "заказ не найден или уже обрабатывается", http.StatusConflict)
-		} else {
+		switch err.Error() {
+		case "invalid order number":
+			http.Error(w, "неверный номер заказа", http.StatusBadRequest)
+		case "order already processed":
+			http.Error(w, "заказ уже обработан", http.StatusConflict)
+		default:
 			http.Error(w, "внутренняя ошибка сервера", http.StatusInternalServerError)
 		}
 		return
 	}
 
+	// Возвращаем 202 Accepted как ожидают тесты
 	w.WriteHeader(http.StatusAccepted)
+	h.log.Info("Order registered from accrual successfully",
+		zap.String("order", req.Order))
 }
 
 // GetOrderStatus - GET /api/orders/{number} в accrual

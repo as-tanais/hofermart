@@ -59,7 +59,7 @@ func (w *AccrualWorker) Start(ctx context.Context) {
 
 func (w *AccrualWorker) processBatch(ctx context.Context) {
 	// 1. Получаем заказы со статусом REGISTERED
-	orders, err := w.orderRepo.GetOrdersByStatus(ctx, "REGISTERED", 10)
+	orders, err := w.orderRepo.GetOrdersByStatus(ctx, "NEW", 10)
 	if err != nil {
 		w.log.Error("Failed to get REGISTERED orders", zap.Error(err))
 		return

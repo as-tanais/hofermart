@@ -15,6 +15,7 @@ type Repository interface {
 	GetOrderByNumber(ctx context.Context, orderNumber string) (*model.Order, error)
 	GetUserOrders(ctx context.Context, userID uuid.UUID) ([]model.Order, error)
 	UpdateOrderUser(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) error
+	UpdateOrderUserAndStatus(ctx context.Context, orderID, userID uuid.UUID, status string) error
 
 	// Методы для accrual
 	GetOrderForRegistration(ctx context.Context, orderNumber string) (*model.Order, error)

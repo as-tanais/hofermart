@@ -390,3 +390,33 @@ func (s *postgresStorage) UpdateOrderUser(ctx context.Context, orderID uuid.UUID
 
 	return nil
 }
+
+// internal/orders/storage/postgres.go
+func (s *postgresStorage) UpdateOrderUserAndStatus(ctx context.Context, orderID, userID uuid.UUID, status string) error {
+	query := `
+		UPDATE orders 
+		SET user_id = $1, status = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3 AND user_id IS NULL
+	`
+
+	result, err := s.db.Exec(ctx, query, userID, status, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order user and status: %w", err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Проверяем почему
+		var currentUserID uuid.UUID
+		var currentStatus string
+		checkQuery := `SELECT user_id, status FROM orders WHERE id = $1`
+		err = s.db.QueryRow(ctx, checkQuery, orderID).Scan(&currentUserID, &currentStatus)
+		if err == nil {
+			return fmt.Errorf("order already has user %s and status %s",
+				currentUserID.String(), currentStatus)
+		}
+		return fmt.Errorf("order not found or already has user")
+	}
+
+	return nil
+}

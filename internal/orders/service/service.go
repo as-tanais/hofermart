@@ -34,65 +34,81 @@ func (s *Service) validateOrderNumber(orderNumber string) error {
 }
 
 // RegisterOrder - регистрация заказа пользователем в Gophermart
-// internal/orders/service/service.go
 func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.CreateOrderReq) error {
 	// 1. Валидация номера заказа
 	if err := s.validateOrderNumber(req.OrderNumber); err != nil {
 		return err
 	}
 
-	s.logger.Debug("RegisterOrder: checking order",
+	s.logger.Info("RegisterOrder: processing",
 		zap.String("userID", userID.String()),
 		zap.String("order", req.OrderNumber))
 
 	// 2. Проверяем существование заказа
 	existingOrder, err := s.repo.GetOrderByNumber(ctx, req.OrderNumber)
 	if err != nil {
-		s.logger.Error("Failed to check order existence", zap.Error(err))
+		s.logger.Error("Failed to check order", zap.Error(err))
 		return fmt.Errorf("failed to check order: %w", err)
 	}
 
 	if existingOrder != nil {
-		s.logger.Debug("Order exists in DB",
+		s.logger.Info("Order exists",
 			zap.String("order", req.OrderNumber),
+			zap.String("status", existingOrder.Status),
 			zap.String("existingUserID", existingOrder.UserID.String()),
-			zap.String("currentUserID", userID.String()),
-			zap.Bool("isSameUser", existingOrder.UserID == userID),
-			zap.Bool("hasUser", existingOrder.UserID != uuid.Nil))
+			zap.String("currentUserID", userID.String()))
 
-		// ВАЖНО: Согласно спецификации:
-		// - Если заказ уже у этого пользователя → возвращаем ErrOrderExistsSameUser (200 OK)
-		// - Если заказ у другого пользователя → возвращаем ErrOrderExistsOtherUser (409 Conflict)
+		// Логика по статусам:
+		// 1. Если заказ в статусе REGISTERED и без пользователя
+		if existingOrder.Status == "REGISTERED" && existingOrder.UserID == uuid.Nil {
+			// Привязываем к пользователю и меняем статус на NEW
+			s.logger.Info("Attaching REGISTERED order to user, changing to NEW")
 
-		if existingOrder.UserID == userID {
-			// Заказ уже принадлежит этому пользователю
-			return orders.ErrOrderExistsSameUser
+			if err := s.repo.UpdateOrderUserAndStatus(ctx, existingOrder.ID, userID, "NEW"); err != nil {
+				s.logger.Error("Failed to update order", zap.Error(err))
+				return err
+			}
+			return nil // Успех → 202 Accepted
 		}
 
-		// Заказ принадлежит другому пользователю
-		return orders.ErrOrderExistsOtherUser
+		// 2. Если заказ уже в статусе NEW (после привязки)
+		if existingOrder.Status == "NEW" {
+			// Проверяем принадлежность пользователю
+			if existingOrder.UserID == userID {
+				s.logger.Info("Order already in NEW status for same user")
+				return orders.ErrOrderExistsSameUser // → 200 OK
+			}
+			s.logger.Warn("Order in NEW status but belongs to other user")
+			return orders.ErrOrderExistsOtherUser // → 409 Conflict
+		}
+
+		// 3. Если заказ в других статусах (PROCESSING, PROCESSED, INVALID)
+		s.logger.Warn("Order exists in non-NEW status",
+			zap.String("status", existingOrder.Status))
+
+		// Проверяем пользователя
+		if existingOrder.UserID == userID {
+			return orders.ErrOrderExistsSameUser // → 200 OK
+		}
+		return orders.ErrOrderExistsOtherUser // → 409 Conflict
 	}
 
-	// 3. Заказ не существует - создаем новый
-	s.logger.Info("Creating new order",
-		zap.String("userID", userID.String()),
-		zap.String("order", req.OrderNumber))
+	// 3. Заказ не существует - создаем новый со статусом NEW
+	s.logger.Info("Creating new order with status NEW")
 
 	order := &model.Order{
 		ID:          uuid.New(),
 		UserID:      userID,
 		OrderNumber: req.OrderNumber,
-		Status:      "NEW", // или "NEW" в зависимости от вашей логики
-
+		Status:      "NEW", // ← Ставим NEW сразу
 	}
 
-	// 4. Сохраняем заказ
 	if err := s.repo.SaveOrder(ctx, order); err != nil {
 		s.logger.Error("Failed to save order", zap.Error(err))
 		return err
 	}
 
-	s.logger.Info("Order created successfully")
+	s.logger.Info("New order created successfully")
 	return nil
 }
 
@@ -130,7 +146,7 @@ func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOr
 		order = &model.Order{
 			ID:          uuid.New(),
 			OrderNumber: req.Order,
-			Status:      "REGISTERED", // ← Accrual статус!
+			Status:      "REGISTERED",
 		}
 
 		if err := s.repo.SaveOrder(ctx, order); err != nil {

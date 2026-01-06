@@ -1,4 +1,4 @@
-package accrual_handler
+package accrual
 
 import (
 	"encoding/json"

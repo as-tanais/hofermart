@@ -87,7 +87,6 @@ func (s *postgresStorage) Update(ctx context.Context, order *model.Order) error 
 			status = COALESCE($2, status),
 			accrual = COALESCE($3, accrual),
 			user_id = COALESCE($4, user_id),
-			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
 	`
 
@@ -294,7 +293,7 @@ func (s *postgresStorage) GetUserOrders(ctx context.Context, userID uuid.UUID) (
 func (s *postgresStorage) UpdateOrderUser(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) error {
 	query := `
 		UPDATE orders 
-		SET user_id = $1, updated_at = CURRENT_TIMESTAMP
+		SET user_id = $1
 		WHERE id = $2 AND user_id IS NULL
 	`
 

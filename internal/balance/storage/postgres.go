@@ -1,13 +1,15 @@
-// internal/balance/storage/postgres.go
 package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	balerr "github.com/as-tanais/hofermart/internal/balance"
 	"github.com/as-tanais/hofermart/internal/balance/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -41,17 +43,25 @@ func (s *PostgresStorage) GetBalance(ctx context.Context, userID uuid.UUID) (*mo
 
 	err := s.db.QueryRow(ctx, query, userID).Scan(&balance.Current, &balance.Withdrawn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get balance for user %s: %w", userID, err)
+		// Проверяем, если это ошибка "no rows"
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Возвращаем нулевой баланс вместо ошибки
+			return &model.Balance{
+				UserID:    userID,
+				Current:   0,
+				Withdrawn: 0,
+			}, nil
+		}
+		return nil, fmt.Errorf("%w: failed to get balance: %v", balerr.ErrDatabaseError, err)
 	}
 
 	return &balance, nil
 }
 
 func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID, orderNumber string, sum float64) error {
-
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("%w: failed to begin transaction: %v", balerr.ErrDatabaseError, err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -72,14 +82,20 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 
 	err = tx.QueryRow(ctx, balanceQuery, userID).Scan(&currentBalance)
 	if err != nil {
-
-		currentBalance = 0
+		// Если нет записей, баланс = 0
+		if errors.Is(err, pgx.ErrNoRows) {
+			currentBalance = 0
+		} else {
+			return fmt.Errorf("%w: failed to get current balance: %v", balerr.ErrDatabaseError, err)
+		}
 	}
 
+	// Проверяем достаточно ли средств
 	if currentBalance < sum {
-		return fmt.Errorf("insufficient funds: current=%.2f, requested=%.2f", currentBalance, sum)
+		return fmt.Errorf("%w: current=%.2f, requested=%.2f", balerr.ErrInsufficientFunds, currentBalance, sum)
 	}
 
+	// Проверяем уникальность номера заказа
 	var exists bool
 	checkQuery := `
         SELECT EXISTS(
@@ -90,13 +106,14 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
     `
 	err = tx.QueryRow(ctx, checkQuery, orderNumber).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("failed to check order uniqueness: %w", err)
+		return fmt.Errorf("%w: failed to check order uniqueness: %v", balerr.ErrDatabaseError, err)
 	}
 
 	if exists {
-		return fmt.Errorf("order number %s already exists", orderNumber)
+		return fmt.Errorf("%w: %s", balerr.ErrOrderAlreadyExists, orderNumber)
 	}
 
+	// Создаем вывод средств
 	insertQuery := `
         INSERT INTO withdrawals (id, user_id, order_number, sum, processed_at)
         VALUES ($1, $2, $3, $4, $5)
@@ -112,15 +129,16 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID uuid.UUID
 	)
 
 	if err != nil {
-
-		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
-			return fmt.Errorf("order number %s already exists", orderNumber)
+		// Обрабатываем ошибку дублирования
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("%w: %s", balerr.ErrOrderAlreadyExists, orderNumber)
 		}
-		return fmt.Errorf("failed to create withdrawal with ID %s: %w", withdrawalID, err)
+		return fmt.Errorf("%w: failed to create withdrawal: %v", balerr.ErrDatabaseError, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return fmt.Errorf("%w: failed to commit transaction: %v", balerr.ErrDatabaseError, err)
 	}
 
 	return nil
@@ -136,7 +154,7 @@ func (s *PostgresStorage) GetUserWithdrawals(ctx context.Context, userID uuid.UU
 
 	rows, err := s.db.Query(ctx, query, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query withdrawals for user %s: %w", userID, err)
+		return nil, fmt.Errorf("%w: failed to query withdrawals: %v", balerr.ErrDatabaseError, err)
 	}
 	defer rows.Close()
 
@@ -147,7 +165,7 @@ func (s *PostgresStorage) GetUserWithdrawals(ctx context.Context, userID uuid.UU
 
 		err := rows.Scan(&w.ID, &w.UserID, &w.Order, &w.Sum, &processedAt)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan withdrawal: %w", err)
+			return nil, fmt.Errorf("%w: failed to scan withdrawal: %v", balerr.ErrDatabaseError, err)
 		}
 
 		w.ProcessedAt = processedAt.Format(time.RFC3339)
@@ -155,7 +173,7 @@ func (s *PostgresStorage) GetUserWithdrawals(ctx context.Context, userID uuid.UU
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error: %w", err)
+		return nil, fmt.Errorf("%w: rows iteration error: %v", balerr.ErrDatabaseError, err)
 	}
 
 	return withdrawals, nil
@@ -173,7 +191,7 @@ func (s *PostgresStorage) CheckOrderExists(ctx context.Context, orderNumber stri
 	var exists bool
 	err := s.db.QueryRow(ctx, query, orderNumber).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("failed to check existence of order %s: %w", orderNumber, err)
+		return false, fmt.Errorf("%w: failed to check order existence: %v", balerr.ErrDatabaseError, err)
 	}
 
 	return exists, nil

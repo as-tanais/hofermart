@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	balerr "github.com/as-tanais/hofermart/internal/balance"
 	"github.com/as-tanais/hofermart/internal/balance/service"
 	"github.com/as-tanais/hofermart/internal/middleware"
 	"go.uber.org/zap"
@@ -81,11 +82,11 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	err := h.service.Withdraw(r.Context(), userID, withdrawRequest.Order, withdrawRequest.Sum)
 	if err != nil {
 		switch err {
-		case service.ErrInvalidOrderNumber:
+		case balerr.ErrInvalidOrderNumber:
 			http.Error(w, "Неверный номер заказа", http.StatusUnprocessableEntity)
-		case service.ErrInsufficientFunds:
+		case balerr.ErrInsufficientFunds:
 			http.Error(w, "На счету недостаточно средств", http.StatusPaymentRequired)
-		case service.ErrOrderAlreadyExists:
+		case balerr.ErrOrderAlreadyExists:
 			http.Error(w, "Заказ уже был использован для списания", http.StatusUnprocessableEntity)
 		default:
 			h.log.Error("Failed to process withdrawal",

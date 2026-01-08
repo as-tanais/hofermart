@@ -3,19 +3,14 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
+	"fmt"
 
+	balerr "github.com/as-tanais/hofermart/internal/balance"
 	"github.com/as-tanais/hofermart/internal/balance/model"
 	"github.com/as-tanais/hofermart/internal/balance/storage"
 	"github.com/as-tanais/hofermart/internal/orders"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-)
-
-var (
-	ErrInsufficientFunds  = errors.New("insufficient funds")
-	ErrInvalidOrderNumber = errors.New("invalid order number")
-	ErrOrderAlreadyExists = errors.New("order already exists")
 )
 
 type BalanceService struct {
@@ -36,6 +31,10 @@ func (s *BalanceService) GetBalance(ctx context.Context, userID uuid.UUID) (*mod
 		s.log.Error("Failed to get user balance",
 			zap.Stringer("userID", userID),
 			zap.Error(err))
+
+		if errors.Is(err, balerr.ErrDatabaseError) {
+			return nil, fmt.Errorf("database error while fetching balance")
+		}
 		return nil, err
 	}
 
@@ -53,32 +52,42 @@ func (s *BalanceService) Withdraw(ctx context.Context, userID uuid.UUID, order s
 		s.log.Warn("Invalid order number (Luhn check failed)",
 			zap.String("order", order),
 			zap.Stringer("userID", userID))
-		return ErrInvalidOrderNumber
+		return balerr.ErrInvalidOrderNumber
 	}
 
 	if sum <= 0 {
 		s.log.Warn("Invalid withdrawal amount",
 			zap.Float64("sum", sum),
 			zap.Stringer("userID", userID))
-		return errors.New("amount must be positive")
+		return balerr.ErrNegativeAmount
 	}
 
 	err := s.repo.CreateWithdrawal(ctx, userID, order, sum)
 	if err != nil {
-		errMsg := err.Error()
 
-		if strings.Contains(errMsg, "insufficient funds") {
+		if errors.Is(err, balerr.ErrInsufficientFunds) {
 			s.log.Warn("Insufficient funds for withdrawal",
 				zap.Stringer("userID", userID),
-				zap.Float64("sum", sum))
-			return ErrInsufficientFunds
+				zap.Float64("sum", sum),
+				zap.Error(err))
+			return balerr.ErrInsufficientFunds
 		}
 
-		if strings.Contains(errMsg, "order number already exists") {
+		if errors.Is(err, balerr.ErrOrderAlreadyExists) {
 			s.log.Warn("Order number already exists",
 				zap.String("order", order),
-				zap.Stringer("userID", userID))
-			return ErrOrderAlreadyExists
+				zap.Stringer("userID", userID),
+				zap.Error(err))
+			return balerr.ErrOrderAlreadyExists
+		}
+
+		if errors.Is(err, balerr.ErrDatabaseError) {
+			s.log.Error("Database error during withdrawal",
+				zap.Stringer("userID", userID),
+				zap.String("order", order),
+				zap.Float64("sum", sum),
+				zap.Error(err))
+			return fmt.Errorf("database error while processing withdrawal")
 		}
 
 		s.log.Error("Failed to create withdrawal",
@@ -86,7 +95,7 @@ func (s *BalanceService) Withdraw(ctx context.Context, userID uuid.UUID, order s
 			zap.String("order", order),
 			zap.Float64("sum", sum),
 			zap.Error(err))
-		return err
+		return fmt.Errorf("withdrawal failed: %w", err)
 	}
 
 	s.log.Info("Successful withdrawal",
@@ -103,6 +112,10 @@ func (s *BalanceService) GetUserWithdrawals(ctx context.Context, userID uuid.UUI
 		s.log.Error("Failed to get user withdrawals",
 			zap.Stringer("userID", userID),
 			zap.Error(err))
+
+		if errors.Is(err, balerr.ErrDatabaseError) {
+			return nil, fmt.Errorf("database error while fetching withdrawals")
+		}
 		return nil, err
 	}
 

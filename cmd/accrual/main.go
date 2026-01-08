@@ -5,14 +5,13 @@ import (
 	"flag"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/as-tanais/hofermart/internal/config"
 	"github.com/as-tanais/hofermart/internal/dbmigrate"
 	"github.com/as-tanais/hofermart/internal/logger"
 	"github.com/as-tanais/hofermart/internal/postgres"
+	"github.com/as-tanais/hofermart/internal/server"
 
 	"github.com/as-tanais/hofermart/internal/rewards/handler"
 	"github.com/as-tanais/hofermart/internal/rewards/service"
@@ -120,60 +119,18 @@ func main() {
 	router.Post("/api/orders", accrualOrderHandler.RegisterOrderWithGoods)
 	router.Get("/api/orders/{number}", accrualOrderHandler.GetOrderStatus)
 
-	// Запуск сервера
-	server := &http.Server{
+	serverCfg := server.Config{
 		Addr:              cfg.RunAddress,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
+		HealthCheckPath:   "/health",
 	}
 
-	serverErr := make(chan error, 1)
-	go func() {
-		log.Info("Server is ready", zap.String("listening on", cfg.RunAddress))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverErr <- err
-		}
-	}()
-
-	// Даем серверу время запуститься и проверяем health
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		client := &http.Client{Timeout: 2 * time.Second}
-		url := "http://" + cfg.RunAddress + "/health"
-		if cfg.RunAddress[0] == ':' {
-			url = "http://localhost" + cfg.RunAddress + "/health"
-		}
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			log.Info("Server health check passed")
-		} else {
-			log.Warn("Health check failed", zap.Error(err))
-		}
-	}()
-
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
-
-	var errServer error
-	select {
-	case errServer = <-serverErr:
-		if errServer != nil && errServer != http.ErrServerClosed {
-			log.Fatal("Server crashed", zap.Error(errServer))
-		}
-	case <-shutdown:
-		log.Info("Shutting down server...")
+	runner := server.NewRunner(serverCfg, log)
+	if err := runner.Run(context.Background()); err != nil {
+		log.Fatal("Server failed", zap.Error(err))
 	}
 
-	ctxShutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(ctxShutdown); err != nil {
-		log.Error("Failed to gracefully shutdown server", zap.Error(err))
-		os.Exit(1)
-	} else {
-		log.Info("Server stopped")
-	}
 }

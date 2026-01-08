@@ -2,11 +2,6 @@ package config
 
 import "fmt"
 
-type AccrualConfig struct {
-	RunAddress string
-	DB         *DBConfig
-}
-
 func LoadAccrualConfig(runAddrFlag, dbFlag string) (*AccrualConfig, error) {
 	runAddr, err := GetEnvOrValue(runAddrFlag, "RUN_ADDRESS")
 	if err != nil {
@@ -19,7 +14,9 @@ func LoadAccrualConfig(runAddrFlag, dbFlag string) (*AccrualConfig, error) {
 	}
 
 	return &AccrualConfig{
-		RunAddress: runAddr,
-		DB:         dbCfg,
+		ServerConfig: ServerConfig{
+			RunAddress: runAddr,
+			DB:         *dbCfg,
+		},
 	}, nil
 }

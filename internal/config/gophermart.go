@@ -2,12 +2,6 @@ package config
 
 import "fmt"
 
-type GophermartConfig struct {
-	RunAddress           string
-	DB                   *DBConfig
-	AccrualSystemAddress string
-}
-
 func LoadGophermartConfig(runAddrFlag, dbFlag, accrualAddrFlag string) (*GophermartConfig, error) {
 	runAddr, err := GetEnvOrValue(runAddrFlag, "RUN_ADDRESS")
 	if err != nil {
@@ -25,8 +19,10 @@ func LoadGophermartConfig(runAddrFlag, dbFlag, accrualAddrFlag string) (*Gopherm
 	}
 
 	return &GophermartConfig{
-		RunAddress:           runAddr,
-		DB:                   dbCfg,
+		ServerConfig: ServerConfig{
+			RunAddress: runAddr,
+			DB:         *dbCfg,
+		},
 		AccrualSystemAddress: accrualAddr,
 	}, nil
 }

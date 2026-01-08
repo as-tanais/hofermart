@@ -34,7 +34,6 @@ func (s *Service) validateOrderNumber(orderNumber string) error {
 }
 
 func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.CreateOrderReq) error {
-
 	if err := s.validateOrderNumber(req.OrderNumber); err != nil {
 		return err
 	}
@@ -43,7 +42,7 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 		zap.String("userID", userID.String()),
 		zap.String("order", req.OrderNumber))
 
-	existingOrder, err := s.repo.GetOrderByNumber(ctx, req.OrderNumber)
+	existingOrder, err := s.repo.FindByNumber(ctx, req.OrderNumber)
 	if err != nil {
 		s.logger.Error("Failed to check order", zap.Error(err))
 		return fmt.Errorf("failed to check order: %w", err)
@@ -57,7 +56,6 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 			zap.String("currentUserID", userID.String()))
 
 		if existingOrder.Status == "REGISTERED" && existingOrder.UserID == uuid.Nil {
-
 			s.logger.Info("Attaching REGISTERED order to user, changing to NEW")
 
 			if err := s.repo.UpdateOrderUserAndStatus(ctx, existingOrder.ID, userID, "NEW"); err != nil {
@@ -68,7 +66,6 @@ func (s *Service) RegisterOrder(ctx context.Context, userID uuid.UUID, req *dto.
 		}
 
 		if existingOrder.Status == "NEW" {
-
 			if existingOrder.UserID == userID {
 				s.logger.Info("Order already in NEW status for same user")
 				return orders.ErrOrderExistsSameUser
@@ -109,7 +106,7 @@ func (s *Service) GetOrder(ctx context.Context, orderNumber string) (*model.Orde
 		return nil, orders.ErrInvalidData
 	}
 
-	order, err := s.repo.GetOrderByNumber(ctx, orderNumber)
+	order, err := s.repo.FindByNumber(ctx, orderNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -121,18 +118,16 @@ func (s *Service) GetOrder(ctx context.Context, orderNumber string) (*model.Orde
 }
 
 func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOrderRequest) error {
-
 	if !orders.IsValidLuhn(req.Order) {
 		return fmt.Errorf("invalid order number")
 	}
 
-	order, err := s.repo.GetOrderByNumber(ctx, req.Order)
+	order, err := s.repo.FindByNumber(ctx, req.Order)
 	if err != nil {
 		return fmt.Errorf("failed to get order: %w", err)
 	}
 
 	if order == nil {
-
 		order = &model.Order{
 			ID:          uuid.New(),
 			OrderNumber: req.Order,
@@ -143,11 +138,9 @@ func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOr
 			return fmt.Errorf("failed to save order: %w", err)
 		}
 	} else {
-
 		if order.Status == "PROCESSING" || order.Status == "PROCESSED" || order.Status == "INVALID" {
 			return fmt.Errorf("order already processed")
 		}
-
 	}
 
 	items := make([]model.OrderItem, len(req.Goods))
@@ -172,7 +165,7 @@ func (s *Service) RegisterOrderWithGoods(ctx context.Context, req *dto.AccrualOr
 }
 
 func (s *Service) GetOrderStatus(ctx context.Context, orderNumber string) (*model.Order, error) {
-	return s.repo.GetOrderByNumber(ctx, orderNumber)
+	return s.repo.FindByNumber(ctx, orderNumber)
 }
 
 func (s *Service) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]model.Order, error) {

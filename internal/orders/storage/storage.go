@@ -1,4 +1,3 @@
-// internal/orders/storage/repository.go
 package storage
 
 import (
@@ -9,16 +8,15 @@ import (
 )
 
 type Repository interface {
-	// Методы для gophermart
+	// Базовые операции
 	SaveOrder(ctx context.Context, order *model.Order) error
 	OrderExists(ctx context.Context, orderNumber string) (bool, error)
-	GetOrderByNumber(ctx context.Context, orderNumber string) (*model.Order, error)
+	FindByNumber(ctx context.Context, orderNumber string) (*model.Order, error)
 	GetUserOrders(ctx context.Context, userID uuid.UUID) ([]model.Order, error)
 	UpdateOrderUser(ctx context.Context, orderID uuid.UUID, userID uuid.UUID) error
 	UpdateOrderUserAndStatus(ctx context.Context, orderID, userID uuid.UUID, status string) error
 
 	// Методы для accrual
-	GetOrderForRegistration(ctx context.Context, orderNumber string) (*model.Order, error)
 	UpdateOrderToRegistered(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error
 
 	// воркер

@@ -56,45 +56,7 @@ func (s *postgresStorage) SaveOrder(ctx context.Context, order *model.Order) err
 }
 
 func (s *postgresStorage) GetOrderByNumber(ctx context.Context, orderNumber string) (*model.Order, error) {
-	const query = `
-		SELECT id, user_id, order_number, status, accrual, created_at
-		FROM orders
-		WHERE order_number = $1
-	`
-
-	order := &model.Order{}
-	var userIDStr *string
-	var accrual sql.NullFloat64
-
-	err := s.db.QueryRow(ctx, query, orderNumber).Scan(
-		&order.ID,
-		&userIDStr,
-		&order.OrderNumber,
-		&order.Status,
-		&accrual,
-		&order.CreatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get order: %w", err)
-	}
-
-	// Конвертируем userID если он есть
-	if userIDStr != nil {
-		order.UserID, err = uuid.Parse(*userIDStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid user ID format: %w", err)
-		}
-	}
-
-	if accrual.Valid {
-		order.Accrual = &accrual.Float64
-	}
-
-	return order, nil
+	return s.FindByNumber(ctx, orderNumber)
 }
 
 func (s *postgresStorage) SaveOrderItems(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error {
@@ -244,35 +206,14 @@ func (s *postgresStorage) GetOrderItems(ctx context.Context, orderID uuid.UUID) 
 }
 
 func (s *postgresStorage) GetOrderForRegistration(ctx context.Context, orderNumber string) (*model.Order, error) {
-	const query = `
-		SELECT id, user_id, order_number, status, created_at
-		FROM orders
-		WHERE order_number = $1 AND status = 'NEW'
-	`
-
-	order := &model.Order{}
-	var userIDStr *string
-
-	err := s.db.QueryRow(ctx, query, orderNumber).Scan(
-		&order.ID,
-		&userIDStr,
-		&order.OrderNumber,
-		&order.Status,
-		&order.CreatedAt,
-	)
-
+	order, err := s.FindByNumber(ctx, orderNumber)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get order for registration: %w", err)
+		return nil, err
 	}
 
-	if userIDStr != nil {
-		order.UserID, err = uuid.Parse(*userIDStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid user ID format: %w", err)
-		}
+	// Фильтрация по статусу остается здесь
+	if order != nil && order.Status != "NEW" {
+		return nil, nil // Или можно вернуть ошибку
 	}
 
 	return order, nil
@@ -401,4 +342,47 @@ func (s *postgresStorage) UpdateOrderUserAndStatus(ctx context.Context, orderID,
 	}
 
 	return nil
+}
+
+// FindByNumber заменяет GetOrderByNumber и GetOrderForRegistration
+func (s *postgresStorage) FindByNumber(ctx context.Context, orderNumber string) (*model.Order, error) {
+	const query = `
+		SELECT id, user_id, order_number, status, accrual, created_at
+		FROM orders
+		WHERE order_number = $1
+	`
+
+	order := &model.Order{}
+	var userIDStr *string
+	var accrual sql.NullFloat64
+
+	err := s.db.QueryRow(ctx, query, orderNumber).Scan(
+		&order.ID,
+		&userIDStr,
+		&order.OrderNumber,
+		&order.Status,
+		&accrual,
+		&order.CreatedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil // Заказ не найден
+		}
+		return nil, fmt.Errorf("failed to find order by number: %w", err)
+	}
+
+	// Конвертируем userID если он есть
+	if userIDStr != nil {
+		order.UserID, err = uuid.Parse(*userIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid user ID format: %w", err)
+		}
+	}
+
+	if accrual.Valid {
+		order.Accrual = &accrual.Float64
+	}
+
+	return order, nil
 }

@@ -21,8 +21,8 @@ type Repository interface {
 
 	// воркер
 	SaveOrderItems(ctx context.Context, orderID uuid.UUID, items []model.OrderItem) error
-	UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error
 	GetOrdersByStatus(ctx context.Context, status string, limit int) ([]model.Order, error)
 	GetOrderItems(ctx context.Context, orderID uuid.UUID) ([]model.OrderItem, error)
-	UpdateOrderWithAccrual(ctx context.Context, orderID uuid.UUID, status string, accrual float64) error
+
+	Update(ctx context.Context, order *model.Order) error
 }

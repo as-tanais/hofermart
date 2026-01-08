@@ -80,29 +80,26 @@ func (s *postgresStorage) SaveOrderItems(ctx context.Context, orderID uuid.UUID,
 	return tx.Commit(ctx)
 }
 
-func (s *postgresStorage) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
-	_, err := s.db.Exec(ctx, `
+func (s *postgresStorage) Update(ctx context.Context, order *model.Order) error {
+	query := `
 		UPDATE orders 
-		SET status = $2
+		SET 
+			status = COALESCE($2, status),
+			accrual = COALESCE($3, accrual),
+			user_id = COALESCE($4, user_id),
+			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
-	`, orderID, status)
+	`
+
+	_, err := s.db.Exec(ctx, query,
+		order.ID,
+		order.Status,
+		order.Accrual,
+		order.UserID,
+	)
 
 	if err != nil {
-		return fmt.Errorf("failed to update order status: %w", err)
-	}
-
-	return nil
-}
-
-func (s *postgresStorage) UpdateOrderWithAccrual(ctx context.Context, orderID uuid.UUID, status string, accrual float64) error {
-	_, err := s.db.Exec(ctx, `
-		UPDATE orders 
-		SET status = $2, accrual = $3
-		WHERE id = $1
-	`, orderID, status, accrual)
-
-	if err != nil {
-		return fmt.Errorf("failed to update order with accrual: %w", err)
+		return fmt.Errorf("failed to update order %s: %w", order.ID, err)
 	}
 
 	return nil

@@ -106,7 +106,8 @@ func (w *AccrualWorker) processBatch(ctx context.Context) {
 
 func (w *AccrualWorker) processOrder(ctx context.Context, order orderModel.Order, rewards []rewardModel.Reward) error {
 
-	if err := w.orderRepo.UpdateOrderStatus(ctx, order.ID, "PROCESSING"); err != nil {
+	order.Status = "PROCESSING"
+	if err := w.orderRepo.Update(ctx, &order); err != nil {
 		return err
 	}
 
@@ -126,7 +127,9 @@ func (w *AccrualWorker) processOrder(ctx context.Context, order orderModel.Order
 		status = "INVALID"
 	}
 
-	if err := w.orderRepo.UpdateOrderWithAccrual(ctx, order.ID, status, accrual); err != nil {
+	order.Status = status
+	order.Accrual = &accrual
+	if err := w.orderRepo.Update(ctx, &order); err != nil {
 		return err
 	}
 

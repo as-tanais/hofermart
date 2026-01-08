@@ -30,7 +30,6 @@ import (
 	balanceStorage "github.com/as-tanais/hofermart/internal/balance/storage"
 
 	"github.com/as-tanais/hofermart/internal/utils/hasher"
-	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
@@ -105,52 +104,34 @@ func main() {
 	balanceSvc := balanceService.NewBalanceService(balanceRepo, log)
 	balanceHdl := balanceHandler.NewBalanceHandler(balanceSvc, log)
 
-	// Создаем роутер
-	router := chi.NewRouter()
+	mux := http.NewServeMux()
 
-	router.Group(func(r chi.Router) {
-		// Health checks
-		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok"}`))
-		})
-
-		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("pong"))
-		})
-
-		// Регистрация и логин
-		r.Post("/api/user/register", userHdl.Register)
-		r.Post("/api/user/login", userHdl.Login)
+	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pong"))
 	})
+	mux.HandleFunc("POST /api/user/register", userHdl.Register)
+	mux.HandleFunc("POST /api/user/login", userHdl.Login)
 
-	// ========== PROTECTED ROUTES (требуют аутентификации) ==========
-	router.Group(func(r chi.Router) {
-		// Применяем middleware проверки аутентификации
-		r.Use(middleware.AuthMiddleware(jwtManager, log))
+	protected := server.NewRouteGroup(mux, "")
+	protected.Use(middleware.AuthMiddleware(jwtManager, log))
 
-		// Заказы пользователя
-		r.Post("/api/user/orders", orderHdl.RegisterOrder)
-		r.Get("/api/user/orders", orderHdl.GetUserOrders)
+	protected.HandleFunc("POST /api/user/orders", orderHdl.RegisterOrder)
+	protected.HandleFunc("GET /api/user/orders", orderHdl.GetUserOrders)
 
-		// Баланс
-		r.Get("/api/user/balance", balanceHdl.GetBalance)
+	protected.HandleFunc("GET /api/user/balance", balanceHdl.GetBalance)
+	protected.HandleFunc("POST /api/user/balance/withdraw", balanceHdl.Withdraw)
+	protected.HandleFunc("GET /api/user/withdrawals", balanceHdl.GetWithdrawals)
 
-		r.Post("/api/user/balance/withdraw", balanceHdl.Withdraw)
-		r.Get("/api/user/withdrawals", balanceHdl.GetWithdrawals)
-
-		// Логаут (удаляет куку)
-		r.Post("/api/user/logout", func(w http.ResponseWriter, r *http.Request) {
-			middleware.ClearAuthCookie(w)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"message":"logged out"}`))
-		})
+	protected.HandleFunc("POST /api/user/logout", func(w http.ResponseWriter, r *http.Request) {
+		middleware.ClearAuthCookie(w)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"message":"logged out"}`))
 	})
 
 	serverCfg := server.Config{
 		Addr:              cfg.RunAddress,
-		Handler:           router,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,

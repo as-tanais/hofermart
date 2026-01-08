@@ -13,7 +13,6 @@ import (
 	"github.com/as-tanais/hofermart/internal/orders/dto"
 	"github.com/as-tanais/hofermart/internal/orders/service"
 
-	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
@@ -106,44 +105,6 @@ func (h *Handler) RegisterOrder(w http.ResponseWriter, r *http.Request) {
 		zap.String("userID", userID.String()),
 		zap.String("order", orderNumber))
 	w.WriteHeader(http.StatusAccepted)
-}
-
-func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
-	orderNumber := chi.URLParam(r, "number")
-	if !orders.IsValidLuhn(orderNumber) {
-		http.Error(w, "некорректный номер заказа", http.StatusBadRequest)
-		return
-	}
-
-	order, err := h.service.GetOrder(r.Context(), orderNumber)
-	if err != nil {
-		// ...
-		return
-	}
-	if order == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	statusMap := map[string]string{
-		"new":        "REGISTERED",
-		"processing": "PROCESSING",
-		"processed":  "PROCESSED",
-		"invalid":    "INVALID",
-	}
-	apiStatus := statusMap[order.Status]
-	if apiStatus == "" {
-		apiStatus = "INVALID"
-	}
-
-	resp := dto.OrderResponse{
-		Order:   order.OrderNumber,
-		Status:  apiStatus,
-		Accrual: order.Accrual,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {

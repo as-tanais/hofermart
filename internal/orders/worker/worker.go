@@ -30,6 +30,26 @@ func NewAccrualWorker(
 	}
 }
 
+func (w *AccrualWorker) StartWithError(ctx context.Context) error {
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(errCh)
+
+		w.Start(ctx)
+
+		errCh <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+
+	case err := <-errCh:
+		return err
+	}
+}
+
 func (w *AccrualWorker) Start(ctx context.Context) {
 	w.log.Info("Starting accrual worker")
 

@@ -12,6 +12,7 @@ import (
 	"github.com/as-tanais/hofermart/internal/logger"
 	"github.com/as-tanais/hofermart/internal/postgres"
 	"github.com/as-tanais/hofermart/internal/server"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/as-tanais/hofermart/internal/rewards/handler"
 	"github.com/as-tanais/hofermart/internal/rewards/service"
@@ -86,12 +87,12 @@ func main() {
 	rewardHandler := handler.NewHandler(rewardService, log)
 	accrualOrderHandler := accrualHandler.NewAccrualHandler(orderService, log)
 
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	defer workerCancel() // На всякий случай
+	g, gctx := errgroup.WithContext(context.Background())
 
-	// Запускаем воркер с workerCtx
-	go accrualWorker.Start(workerCtx)
-	log.Info("Worker Started")
+	g.Go(func() error {
+		log.Info("Worker start")
+		return accrualWorker.StartWithError(gctx)
+	})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/goods", rewardHandler.CreateReward)

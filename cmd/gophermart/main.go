@@ -1,3 +1,149 @@
 package main
 
-func main() {}
+import (
+	"context"
+	"flag"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/as-tanais/hofermart/internal/auth"
+	"github.com/as-tanais/hofermart/internal/config"
+	"github.com/as-tanais/hofermart/internal/dbmigrate"
+	"github.com/as-tanais/hofermart/internal/logger"
+	"github.com/as-tanais/hofermart/internal/middleware"
+	"github.com/as-tanais/hofermart/internal/postgres"
+	"github.com/as-tanais/hofermart/internal/server"
+
+	// User
+	userHandler "github.com/as-tanais/hofermart/internal/user/handler"
+	userService "github.com/as-tanais/hofermart/internal/user/service"
+	userStorage "github.com/as-tanais/hofermart/internal/user/storage"
+
+	// Order (gophermart)
+	orderHandler "github.com/as-tanais/hofermart/internal/orders/handler"
+	orderService "github.com/as-tanais/hofermart/internal/orders/service"
+	orderStorage "github.com/as-tanais/hofermart/internal/orders/storage"
+
+	balanceHandler "github.com/as-tanais/hofermart/internal/balance/handler"
+	balanceService "github.com/as-tanais/hofermart/internal/balance/service"
+	balanceStorage "github.com/as-tanais/hofermart/internal/balance/storage"
+
+	"github.com/as-tanais/hofermart/internal/utils/hasher"
+	"go.uber.org/zap"
+)
+
+func main() {
+	// Создаем логгер с подробным выводом для отладки
+	log := logger.NewLogger()
+	defer log.Sync()
+
+	// Устанавливаем значения по умолчанию для флагов
+	addr := flag.String("a", "localhost:8080", "Server address (e.g. :8080)")
+	dsn := flag.String("d", "postgres://postgres:postgres@localhost:5432/gophermart?sslmode=disable", "DSN")
+	accrualAddr := flag.String("r", "http://localhost:8080", "Accrual system address (e.g. http://accrual:8080)")
+	jwtSecret := flag.String("j", "My-strong-secret-for-JWT-bla-blab-123", "JWT secret key")
+
+	flag.Parse()
+
+	// ПРИОРИТЕТ: переменные окружения > флаги
+	if envAddr := os.Getenv("RUN_ADDRESS"); envAddr != "" {
+		*addr = envAddr
+		log.Info("Using RUN_ADDRESS from environment", zap.String("value", envAddr))
+	}
+	if envDSN := os.Getenv("DATABASE_URI"); envDSN != "" {
+		*dsn = envDSN
+		log.Info("Using DATABASE_URI from environment", zap.String("value", envDSN))
+	}
+	if envAccrual := os.Getenv("ACCRUAL_SYSTEM_ADDRESS"); envAccrual != "" {
+		*accrualAddr = envAccrual
+		log.Info("Using ACCRUAL_SYSTEM_ADDRESS from environment", zap.String("value", envAccrual))
+	}
+	if envJWT := os.Getenv("JWT_SECRET"); envJWT != "" {
+		*jwtSecret = envJWT
+	}
+
+	log.Info("Config loaded",
+		zap.String("address", *addr),
+		zap.String("dsn", *dsn),
+		zap.String("accrual_addr", *accrualAddr))
+
+	cfg, err := config.LoadGophermartConfig(*addr, *dsn, *accrualAddr)
+	if err != nil {
+		log.Fatal("Failed to load config", zap.Error(err))
+	}
+
+	log.Info("Applying migrations...")
+	if err := dbmigrate.DBMigrate(cfg.DB.DatabaseURI); err != nil {
+		log.Fatal("Migration failed", zap.Error(err))
+	}
+
+	ctx := context.Background()
+
+	log.Info("Connecting to DB...")
+	pool, err := postgres.NewPool(ctx, cfg.DB.DatabaseURI)
+	if err != nil {
+		log.Fatal("DB connection failed", zap.Error(err))
+	}
+	defer pool.Close()
+
+	log.Info("Starting HTTP server...")
+
+	// Инициализация зависимостей
+	hasher := hasher.NewHasher(5)
+	jwtManager := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTExpiration)
+
+	// User сервисы
+	userRepo := userStorage.NewUserStorage(pool)
+	userSvc := userService.NewUserService(userRepo, hasher, log)
+	userHdl := userHandler.NewHandler(userSvc, jwtManager, log)
+
+	// Order сервисы (gophermart)
+	orderRepo := orderStorage.NewPostgresStorage(pool)
+	orderSvc := orderService.NewService(orderRepo, log)
+	orderHdl := orderHandler.NewHandler(orderSvc, log)
+
+	// Balance
+	balanceRepo := balanceStorage.NewPostgresStorage(pool)
+	balanceSvc := balanceService.NewBalanceService(balanceRepo, log)
+	balanceHdl := balanceHandler.NewBalanceHandler(balanceSvc, log)
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pong"))
+	})
+	mux.HandleFunc("POST /api/user/register", userHdl.Register)
+	mux.HandleFunc("POST /api/user/login", userHdl.Login)
+
+	protected := server.NewRouteGroup(mux, "")
+	protected.Use(middleware.AuthMiddleware(jwtManager, log))
+
+	protected.HandleFunc("POST /api/user/orders", orderHdl.RegisterOrder)
+	protected.HandleFunc("GET /api/user/orders", orderHdl.GetUserOrders)
+
+	protected.HandleFunc("GET /api/user/balance", balanceHdl.GetBalance)
+	protected.HandleFunc("POST /api/user/balance/withdraw", balanceHdl.Withdraw)
+	protected.HandleFunc("GET /api/user/withdrawals", balanceHdl.GetWithdrawals)
+
+	protected.HandleFunc("POST /api/user/logout", func(w http.ResponseWriter, r *http.Request) {
+		middleware.ClearAuthCookie(w)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"message":"logged out"}`))
+	})
+
+	serverCfg := server.Config{
+		Addr:              cfg.RunAddress,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		HealthCheckPath:   "/health",
+	}
+
+	runner := server.NewRunner(serverCfg, log)
+	if err := runner.Run(context.Background()); err != nil {
+		log.Fatal("Server failed", zap.Error(err))
+	}
+}

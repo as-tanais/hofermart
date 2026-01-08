@@ -86,7 +86,7 @@ func (s *postgresStorage) Update(ctx context.Context, order *model.Order) error 
 		SET 
 			status = COALESCE($2, status),
 			accrual = COALESCE($3, accrual),
-			user_id = COALESCE($4, user_id),
+			user_id = COALESCE($4, user_id)
 		WHERE id = $1
 	`
 

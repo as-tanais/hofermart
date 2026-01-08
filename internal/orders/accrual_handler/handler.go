@@ -6,7 +6,6 @@ import (
 
 	"github.com/as-tanais/hofermart/internal/orders/dto"
 	"github.com/as-tanais/hofermart/internal/orders/service"
-	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
@@ -70,7 +69,7 @@ func (h *OrderHandler) RegisterOrderWithGoods(w http.ResponseWriter, r *http.Req
 }
 
 func (h *OrderHandler) GetOrderStatus(w http.ResponseWriter, r *http.Request) {
-	orderNumber := chi.URLParam(r, "number")
+	orderNumber := r.PathValue("number")
 
 	if orderNumber == "" {
 		http.Error(w, "номер заказа обязателен", http.StatusBadRequest)

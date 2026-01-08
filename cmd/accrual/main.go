@@ -22,7 +22,6 @@ import (
 	orderstorage "github.com/as-tanais/hofermart/internal/orders/storage"
 	"github.com/as-tanais/hofermart/internal/orders/worker"
 
-	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
@@ -94,34 +93,14 @@ func main() {
 	go accrualWorker.Start(workerCtx)
 	log.Info("Worker Started")
 
-	// Роутер
-	router := chi.NewRouter()
-
-	// Health check с проверкой БД
-	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		// Проверяем подключение к БД
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer cancel()
-
-		if err := db.Ping(ctx); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"status":"db_error"}`))
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-
-	// Основные эндпоинты
-	router.Post("/api/goods", rewardHandler.CreateReward)
-
-	router.Post("/api/orders", accrualOrderHandler.RegisterOrderWithGoods)
-	router.Get("/api/orders/{number}", accrualOrderHandler.GetOrderStatus)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/goods", rewardHandler.CreateReward)
+	mux.HandleFunc("POST /api/orders", accrualOrderHandler.RegisterOrderWithGoods)
+	mux.HandleFunc("GET /api/orders/{number}", accrualOrderHandler.GetOrderStatus)
 
 	serverCfg := server.Config{
 		Addr:              cfg.RunAddress,
-		Handler:           router,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,

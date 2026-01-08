@@ -20,6 +20,8 @@ type AccrualConfig struct {
 type GophermartConfig struct {
 	ServerConfig
 	AccrualSystemAddress string
+	JWTSecret            string
+	JWTExpiration        time.Duration
 }
 
 type ServerConfigOptions struct {

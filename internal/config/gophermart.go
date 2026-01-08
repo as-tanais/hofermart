@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 func LoadGophermartConfig(runAddrFlag, dbFlag, accrualAddrFlag string) (*GophermartConfig, error) {
 	runAddr, err := GetEnvOrValue(runAddrFlag, "RUN_ADDRESS")
@@ -18,11 +21,19 @@ func LoadGophermartConfig(runAddrFlag, dbFlag, accrualAddrFlag string) (*Gopherm
 		return nil, fmt.Errorf("failed to load ACCRUAL_SYSTEM_ADDRESS: %w", err)
 	}
 
+	jwtSecret, err := GetEnvOrValue("My-strong-secret-for-JWT-bla-blab-123", "JWT_SECRET")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load JWT_SECRET: %w", err)
+	}
+	jwtExpiration := 24 * time.Hour
+
 	return &GophermartConfig{
 		ServerConfig: ServerConfig{
 			RunAddress: runAddr,
 			DB:         *dbCfg,
 		},
 		AccrualSystemAddress: accrualAddr,
+		JWTSecret:            jwtSecret,
+		JWTExpiration:        jwtExpiration,
 	}, nil
 }

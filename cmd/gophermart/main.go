@@ -42,6 +42,7 @@ func main() {
 	addr := flag.String("a", "localhost:8080", "Server address (e.g. :8080)")
 	dsn := flag.String("d", "postgres://postgres:postgres@localhost:5432/gophermart?sslmode=disable", "DSN")
 	accrualAddr := flag.String("r", "http://localhost:8080", "Accrual system address (e.g. http://accrual:8080)")
+	jwtSecret := flag.String("j", "My-strong-secret-for-JWT-bla-blab-123", "JWT secret key")
 
 	flag.Parse()
 
@@ -57,6 +58,9 @@ func main() {
 	if envAccrual := os.Getenv("ACCRUAL_SYSTEM_ADDRESS"); envAccrual != "" {
 		*accrualAddr = envAccrual
 		log.Info("Using ACCRUAL_SYSTEM_ADDRESS from environment", zap.String("value", envAccrual))
+	}
+	if envJWT := os.Getenv("JWT_SECRET"); envJWT != "" {
+		*jwtSecret = envJWT
 	}
 
 	log.Info("Config loaded",
@@ -87,7 +91,7 @@ func main() {
 
 	// Инициализация зависимостей
 	hasher := hasher.NewHasher(5)
-	jwtManager := auth.NewJWTManager("My-strong-secret-for-JWT-bla-blab-123", 3600*time.Second)
+	jwtManager := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTExpiration)
 
 	// User сервисы
 	userRepo := userStorage.NewUserStorage(pool)
